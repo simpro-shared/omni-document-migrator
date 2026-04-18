@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Localhost tool for migrating Omni dashboards across instances",
   "private": true,
-  "license": "ISC",
+  "license": "MIT",
   "author": "Simpro Group",
   "type": "module",
   "packageManager": "pnpm@10.33.0",
