@@ -1,0 +1,62 @@
+import { Route, Routes, NavLink, Navigate, useNavigate } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { api } from './lib/api';
+import Unlock from './pages/Unlock';
+import Instances from './pages/Instances';
+import Migrate from './pages/Migrate';
+import JobDetail from './pages/JobDetail';
+import History from './pages/History';
+
+export default function App() {
+  const qc = useQueryClient();
+  const nav = useNavigate();
+  const { data, isLoading } = useQuery({
+    queryKey: ['unlock-status'],
+    queryFn: api.unlockStatus,
+    refetchInterval: 5000,
+  });
+
+  if (isLoading) return <div className="p-8 text-zinc-400">loading…</div>;
+
+  if (!data?.unlocked) return <Unlock vaultExists={data?.vaultExists ?? false} />;
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      <header className="border-b border-zinc-800 px-6 py-3 flex items-center gap-6">
+        <h1 className="font-semibold text-zinc-200">Omni Document Migrator</h1>
+        <nav className="flex gap-4 text-sm">
+          <NavLink to="/migrate" className={navClass}>Migrate</NavLink>
+          <NavLink to="/instances" className={navClass}>Instances</NavLink>
+          <NavLink to="/history" className={navClass}>History</NavLink>
+        </nav>
+        <div className="ml-auto">
+          <button
+            className="text-xs text-zinc-400 hover:text-zinc-200"
+            onClick={async () => {
+              await api.lock();
+              await qc.invalidateQueries({ queryKey: ['unlock-status'] });
+              nav('/');
+            }}
+          >
+            lock
+          </button>
+        </div>
+      </header>
+      <main className="flex-1 p-6 max-w-6xl w-full mx-auto">
+        <Routes>
+          <Route path="/" element={<Navigate to="/migrate" replace />} />
+          <Route path="/migrate" element={<Migrate />} />
+          <Route path="/instances" element={<Instances />} />
+          <Route path="/jobs/:id" element={<JobDetail />} />
+          <Route path="/history" element={<History />} />
+        </Routes>
+      </main>
+    </div>
+  );
+}
+
+function navClass({ isActive }: { isActive: boolean }): string {
+  return isActive
+    ? 'text-zinc-100 border-b border-zinc-100 pb-0.5'
+    : 'text-zinc-400 hover:text-zinc-200';
+}
