@@ -44,6 +44,16 @@ export const api = {
   listFolder: (instanceId: string) =>
     fetch(`/api/instances/${instanceId}/folder`).then(j<OmniDoc[]>),
 
+  getDoc: (instanceId: string, docId: string) =>
+    fetch(`/api/instances/${instanceId}/documents/${encodeURIComponent(docId)}`)
+      .then(j<{ name: string; description: string | null }>),
+  patchDoc: (instanceId: string, docId: string, body: { name?: string; description?: string | null; clearExistingDraft?: boolean }) =>
+    fetch(`/api/instances/${instanceId}/documents/${encodeURIComponent(docId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(j<{ ok: true }>),
+
   previewJob: (body: { sourceId: string; destIds: string[]; docIds: string[]; emptyFirst: boolean }) =>
     fetch('/api/jobs/preview', {
       method: 'POST',

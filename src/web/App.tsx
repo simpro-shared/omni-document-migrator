@@ -4,6 +4,7 @@ import { api } from './lib/api';
 import Unlock from './pages/Unlock';
 import Instances from './pages/Instances';
 import Migrate from './pages/Migrate';
+import Documents from './pages/Documents';
 import JobDetail from './pages/JobDetail';
 import History from './pages/History';
 
@@ -26,6 +27,7 @@ export default function App() {
         <h1 className="font-semibold text-zinc-200">Omni Document Migrator</h1>
         <nav className="flex gap-4 text-sm">
           <NavLink to="/migrate" className={navClass}>Migrate</NavLink>
+          <NavLink to="/documents" className={navClass}>Documents</NavLink>
           <NavLink to="/instances" className={navClass}>Instances</NavLink>
           <NavLink to="/history" className={navClass}>History</NavLink>
         </nav>
@@ -46,6 +48,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/migrate" replace />} />
           <Route path="/migrate" element={<Migrate />} />
+          <Route path="/documents" element={<Documents />} />
           <Route path="/instances" element={<Instances />} />
           <Route path="/jobs/:id" element={<JobDetail />} />
           <Route path="/history" element={<History />} />

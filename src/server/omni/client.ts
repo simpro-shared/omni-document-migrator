@@ -122,6 +122,16 @@ export class OmniClient {
   async deleteDoc(identifier: string): Promise<void> {
     await this.request('DELETE', `/api/v1/documents/${encodeURIComponent(identifier)}`);
   }
+
+  async getDoc(identifier: string): Promise<{ name: string; description: string | null }> {
+    const res = await this.request('GET', `/api/v1/documents/${encodeURIComponent(identifier)}`);
+    const data = await res.json() as { name: string; description?: string | null };
+    return { name: data.name, description: data.description ?? null };
+  }
+
+  async patchDoc(identifier: string, body: { name?: string; description?: string | null; clearExistingDraft?: boolean }): Promise<void> {
+    await this.request('PATCH', `/api/v1/documents/${encodeURIComponent(identifier)}`, { body });
+  }
 }
 
 function sleep(ms: number): Promise<void> {
