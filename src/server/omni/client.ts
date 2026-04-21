@@ -2,6 +2,30 @@ import type { Instance, OmniDoc, OmniLabel } from '../../shared/types.js';
 import type { OmniExportPayload, OmniImportResponse, OmniLabelsListResponse, OmniListResponse } from './types.js';
 
 const TIMEOUT_MS = 60_000;
+// Omni API limit: 60 req/min per key. Leave headroom → ~50/min ≈ 1200ms between requests.
+const MIN_REQUEST_GAP_MS = 1200;
+const MAX_RETRIES_ON_429 = 5;
+
+const keyChain = new Map<string, Promise<void>>();
+const lastStart = new Map<string, number>();
+
+async function acquireSlot(apiKey: string): Promise<void> {
+  const prev = keyChain.get(apiKey) ?? Promise.resolve();
+  const mine = prev.then(async () => {
+    const last = lastStart.get(apiKey) ?? 0;
+    const wait = Math.max(0, last + MIN_REQUEST_GAP_MS - Date.now());
+    if (wait > 0) await sleep(wait);
+    lastStart.set(apiKey, Date.now());
+  });
+  keyChain.set(apiKey, mine.catch(() => {}));
+  await mine;
+}
+
+async function backoffForRetry(apiKey: string, retryAfterSec: number | null, attempt: number): Promise<void> {
+  const base = retryAfterSec !== null ? retryAfterSec * 1000 : Math.min(30_000, 1000 * 2 ** attempt);
+  lastStart.set(apiKey, Date.now() + base);
+  await sleep(base);
+}
 
 export class OmniError extends Error {
   constructor(public status: number, public url: string, message: string) {
@@ -37,10 +61,11 @@ export class OmniClient {
     };
     if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
 
-    const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), TIMEOUT_MS);
     let lastErr: unknown;
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt <= MAX_RETRIES_ON_429; attempt++) {
+      await acquireSlot(this.inst.apiKey);
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), TIMEOUT_MS);
       try {
         const res = await fetch(url, {
           method,
@@ -48,29 +73,32 @@ export class OmniClient {
           body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
           signal: controller.signal,
         });
-        if (res.status === 429 && attempt === 0) {
-          await sleep(750);
+        clearTimeout(t);
+        if (res.status === 429) {
+          if (attempt >= MAX_RETRIES_ON_429) {
+            const text = await res.text().catch(() => '');
+            throw new OmniError(429, url, text || 'rate limited');
+          }
+          const ra = parseRetryAfter(res.headers.get('retry-after'));
+          await backoffForRetry(this.inst.apiKey, ra, attempt);
           continue;
         }
         if (!res.ok) {
           const text = await res.text().catch(() => '');
           throw new OmniError(res.status, url, text || res.statusText);
         }
-        clearTimeout(t);
         return res;
       } catch (err) {
+        clearTimeout(t);
         lastErr = err;
-        if (err instanceof OmniError && err.status < 500 && err.status !== 429) {
-          clearTimeout(t);
-          throw err;
+        if (err instanceof OmniError) {
+          if (err.status === 429) continue;
+          if (err.status < 500) throw err;
         }
-        if (attempt === 0) {
-          await sleep(500);
-          continue;
-        }
+        if (attempt >= MAX_RETRIES_ON_429) break;
+        await sleep(Math.min(10_000, 500 * 2 ** attempt));
       }
     }
-    clearTimeout(t);
     throw lastErr instanceof Error ? lastErr : new Error('omni request failed');
   }
 
@@ -176,4 +204,13 @@ export class OmniClient {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
+}
+
+function parseRetryAfter(header: string | null): number | null {
+  if (!header) return null;
+  const n = Number(header);
+  if (Number.isFinite(n) && n >= 0) return n;
+  const date = Date.parse(header);
+  if (!Number.isNaN(date)) return Math.max(0, Math.ceil((date - Date.now()) / 1000));
+  return null;
 }
