@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { Fragment, useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
-import type { JobPlan } from '../../shared/types';
+import type { JobPlan, OmniDoc } from '../../shared/types';
 
 export default function Migrate() {
   const nav = useNavigate();
+  const qc = useQueryClient();
   const { data: instances } = useQuery({ queryKey: ['instances'], queryFn: api.listInstances });
 
   const sources = useMemo(() => instances?.filter(i => i.role === 'source') ?? [], [instances]);
@@ -16,6 +17,7 @@ export default function Migrate() {
   const [docIds, setDocIds] = useState<string[]>([]);
   const [emptyFirst, setEmptyFirst] = useState(false);
   const [plan, setPlan] = useState<JobPlan | null>(null);
+  const [fixingId, setFixingId] = useState<string | null>(null);
 
   const docs = useQuery({
     queryKey: ['folder', sourceId],
@@ -107,22 +109,68 @@ export default function Migrate() {
                     </th>
                     <th className="p-2">Name</th>
                     <th className="p-2">Identifier</th>
+                    <th className="p-2 w-32">Flags</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {docs.data.map(d => (
-                    <tr key={d.identifier} className="border-t border-zinc-800">
-                      <td className="p-2">
-                        <input
-                          type="checkbox"
-                          checked={docIds.includes(d.identifier)}
-                          onChange={() => { setDocIds(toggle(docIds, d.identifier)); setPlan(null); }}
-                        />
-                      </td>
-                      <td className="p-2">{d.name}</td>
-                      <td className="p-2 text-zinc-500 font-mono text-xs">{d.identifier}</td>
-                    </tr>
-                  ))}
+                  {docs.data.map(d => {
+                    const missingDesc = !d.description || d.description.trim() === '';
+                    const missingLabels = !d.labels || d.labels.length === 0;
+                    const hasFlag = missingDesc || missingLabels;
+                    const open = fixingId === d.identifier;
+                    return (
+                      <Fragment key={d.identifier}>
+                        <tr className="border-t border-zinc-800">
+                          <td className="p-2">
+                            <input
+                              type="checkbox"
+                              checked={docIds.includes(d.identifier)}
+                              onChange={() => { setDocIds(toggle(docIds, d.identifier)); setPlan(null); }}
+                            />
+                          </td>
+                          <td className="p-2">{d.name}</td>
+                          <td className="p-2 text-zinc-500 font-mono text-xs">{d.identifier}</td>
+                          <td className="p-2">
+                            {hasFlag && (
+                              <button
+                                onClick={() => setFixingId(open ? null : d.identifier)}
+                                className="flex gap-1 flex-wrap"
+                                title="Click to fix"
+                              >
+                                {missingDesc && (
+                                  <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded border border-amber-700/60 bg-amber-900/30 text-amber-300 hover:bg-amber-900/50">
+                                    no desc
+                                  </span>
+                                )}
+                                {missingLabels && (
+                                  <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded border border-amber-700/60 bg-amber-900/30 text-amber-300 hover:bg-amber-900/50">
+                                    no labels
+                                  </span>
+                                )}
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                        {open && (
+                          <tr className="border-t border-zinc-800 bg-zinc-950/60">
+                            <td colSpan={4} className="p-3">
+                              <FixPanel
+                                instanceId={sourceId}
+                                doc={d}
+                                needDesc={missingDesc}
+                                needLabels={missingLabels}
+                                onClose={() => setFixingId(null)}
+                                onSaved={() => {
+                                  qc.invalidateQueries({ queryKey: ['folder', sourceId] });
+                                  setFixingId(null);
+                                }}
+                              />
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -179,6 +227,125 @@ function PlanView({ plan }: { plan: JobPlan }) {
         ))}
       </div>
     </section>
+  );
+}
+
+function FixPanel({
+  instanceId,
+  doc,
+  needDesc,
+  needLabels,
+  onClose,
+  onSaved,
+}: {
+  instanceId: string;
+  doc: OmniDoc;
+  needDesc: boolean;
+  needLabels: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [desc, setDesc] = useState('');
+  const [selected, setSelected] = useState<string[]>([]);
+  const [clearExistingDraft, setClearExistingDraft] = useState(false);
+
+  const labels = useQuery({
+    queryKey: ['labels', instanceId],
+    queryFn: () => api.listLabels(instanceId),
+    enabled: needLabels,
+  });
+
+  const save = useMutation({
+    mutationFn: async () => {
+      if (needDesc && desc.trim()) {
+        await api.patchDoc(instanceId, doc.identifier, {
+          description: desc,
+          ...(clearExistingDraft ? { clearExistingDraft: true } : {}),
+        });
+      }
+      if (needLabels && selected.length > 0) {
+        await api.setDocumentLabels(instanceId, doc.identifier, { add: selected });
+      }
+    },
+    onSuccess: () => onSaved(),
+  });
+
+  const toggleLabel = (name: string): void =>
+    setSelected(prev => (prev.includes(name) ? prev.filter(x => x !== name) : [...prev, name]));
+
+  const nothingToSave =
+    (!needDesc || desc.trim() === '') && (!needLabels || selected.length === 0);
+
+  return (
+    <div className="space-y-3">
+      {needDesc && (
+        <div>
+          <div className="text-xs text-zinc-400 mb-1">Description</div>
+          <textarea
+            value={desc}
+            onChange={e => setDesc(e.target.value)}
+            rows={3}
+            className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1.5 text-sm"
+            placeholder="Add a description"
+          />
+          <label className="flex items-center gap-2 text-xs text-zinc-400 mt-1">
+            <input
+              type="checkbox"
+              checked={clearExistingDraft}
+              onChange={e => setClearExistingDraft(e.target.checked)}
+            />
+            Clear existing draft (required if document has an unpublished draft)
+          </label>
+        </div>
+      )}
+      {needLabels && (
+        <div>
+          <div className="text-xs text-zinc-400 mb-1">Labels</div>
+          {labels.isLoading && <div className="text-xs text-zinc-500">loading labels…</div>}
+          {labels.error && <div className="text-xs text-red-400">{(labels.error as Error).message}</div>}
+          {labels.data && (
+            labels.data.length === 0 ? (
+              <div className="text-xs text-zinc-500">No labels exist in this instance.</div>
+            ) : (
+              <div className="flex flex-wrap gap-1.5 max-h-40 overflow-auto">
+                {labels.data.map(l => {
+                  const on = selected.includes(l.name);
+                  return (
+                    <button
+                      key={l.name}
+                      onClick={() => toggleLabel(l.name)}
+                      className={`text-xs px-2 py-0.5 rounded border ${
+                        on
+                          ? 'bg-blue-900/40 border-blue-700 text-blue-200'
+                          : 'border-zinc-700 text-zinc-300 hover:bg-zinc-800'
+                      }`}
+                    >
+                      {l.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )
+          )}
+        </div>
+      )}
+      <div className="flex gap-2">
+        <button
+          disabled={save.isPending || nothingToSave}
+          onClick={() => save.mutate()}
+          className="bg-emerald-500 text-emerald-950 rounded px-3 py-1 text-sm font-medium disabled:opacity-40"
+        >
+          {save.isPending ? 'saving…' : 'Save'}
+        </button>
+        <button
+          onClick={onClose}
+          className="text-zinc-400 hover:text-zinc-200 text-sm px-3 py-1"
+        >
+          Cancel
+        </button>
+        {save.error && <span className="text-xs text-red-400 self-center">{(save.error as Error).message}</span>}
+      </div>
+    </div>
   );
 }
 

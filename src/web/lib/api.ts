@@ -2,6 +2,7 @@ import type {
   InstancePublic,
   Instance,
   OmniDoc,
+  OmniLabel,
   JobPlan,
   Job,
   JobWithItems,
@@ -49,6 +50,15 @@ export const api = {
       .then(j<{ name: string; description: string | null }>),
   patchDoc: (instanceId: string, docId: string, body: { name?: string; description?: string | null; clearExistingDraft?: boolean }) =>
     fetch(`/api/instances/${instanceId}/documents/${encodeURIComponent(docId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(j<{ ok: true }>),
+
+  listLabels: (instanceId: string) =>
+    fetch(`/api/instances/${instanceId}/labels`).then(j<OmniLabel[]>),
+  setDocumentLabels: (instanceId: string, docId: string, body: { add?: string[]; remove?: string[] }) =>
+    fetch(`/api/instances/${instanceId}/documents/${encodeURIComponent(docId)}/labels`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
