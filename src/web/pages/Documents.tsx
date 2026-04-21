@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 
@@ -49,8 +49,8 @@ export default function Documents() {
                   instanceId={sourceId}
                   docId={d.identifier}
                   name={d.name}
+                  description={d.description ?? null}
                   onSaved={() => {
-                    qc.invalidateQueries({ queryKey: ['doc', sourceId, d.identifier] });
                     qc.invalidateQueries({ queryKey: ['folder', sourceId] });
                   }}
                 />
@@ -67,23 +67,19 @@ function DocumentRow({
   instanceId,
   docId,
   name,
+  description,
   onSaved,
 }: {
   instanceId: string;
   docId: string;
   name: string;
+  description: string | null;
   onSaved: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draftDesc, setDraftDesc] = useState<string>('');
   const [draftName, setDraftName] = useState<string>('');
   const [clearExistingDraft, setClearExistingDraft] = useState(false);
-
-  const doc = useQuery({
-    queryKey: ['doc', instanceId, docId],
-    queryFn: () => api.getDoc(instanceId, docId),
-    enabled: editing,
-  });
 
   const save = useMutation({
     mutationFn: () => {
@@ -103,17 +99,10 @@ function DocumentRow({
 
   const startEdit = (): void => {
     setEditing(true);
-    setDraftDesc('');
+    setDraftDesc(description ?? '');
     setDraftName(name);
     setClearExistingDraft(false);
   };
-
-  useEffect(() => {
-    if (editing && doc.data) {
-      setDraftDesc(doc.data.description ?? '');
-      setDraftName(doc.data.name);
-    }
-  }, [editing, doc.data]);
 
   return (
     <li className="p-3">
@@ -123,53 +112,49 @@ function DocumentRow({
           <div className="text-xs text-zinc-500 font-mono truncate">{docId}</div>
           {editing ? (
             <div className="mt-2 space-y-2">
-              {doc.isLoading && <div className="text-xs text-zinc-500">loading current description…</div>}
-              {doc.error && <div className="text-xs text-red-400">{(doc.error as Error).message}</div>}
-              {doc.data && (
-                <>
-                  <input
-                    value={draftName}
-                    onChange={e => setDraftName(e.target.value)}
-                    maxLength={254}
-                    className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1.5 text-sm"
-                    placeholder="Name"
-                  />
-                  <textarea
-                    value={draftDesc}
-                    onChange={e => setDraftDesc(e.target.value)}
-                    rows={3}
-                    className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1.5 text-sm"
-                    placeholder="(empty = clear description)"
-                  />
-                  <label className="flex items-center gap-2 text-xs text-zinc-400">
-                    <input
-                      type="checkbox"
-                      checked={clearExistingDraft}
-                      onChange={e => setClearExistingDraft(e.target.checked)}
-                    />
-                    Clear existing draft (required if document has an unpublished draft)
-                  </label>
-                  <div className="flex gap-2">
-                    <button
-                      disabled={save.isPending || draftName.trim() === ''}
-                      onClick={() => save.mutate()}
-                      className="bg-emerald-500 text-emerald-950 rounded px-3 py-1 text-sm font-medium disabled:opacity-40"
-                    >
-                      {save.isPending ? 'saving…' : 'Save'}
-                    </button>
-                    <button
-                      onClick={() => { setEditing(false); setDraftDesc(''); setDraftName(''); setClearExistingDraft(false); }}
-                      className="text-zinc-400 hover:text-zinc-200 text-sm px-3 py-1"
-                    >
-                      Cancel
-                    </button>
-                    {save.error && <span className="text-xs text-red-400 self-center">{(save.error as Error).message}</span>}
-                  </div>
-                </>
-              )}
+              <input
+                value={draftName}
+                onChange={e => setDraftName(e.target.value)}
+                maxLength={254}
+                className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1.5 text-sm"
+                placeholder="Name"
+              />
+              <textarea
+                value={draftDesc}
+                onChange={e => setDraftDesc(e.target.value)}
+                rows={3}
+                className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1.5 text-sm"
+                placeholder="(empty = clear description)"
+              />
+              <label className="flex items-center gap-2 text-xs text-zinc-400">
+                <input
+                  type="checkbox"
+                  checked={clearExistingDraft}
+                  onChange={e => setClearExistingDraft(e.target.checked)}
+                />
+                Clear existing draft (required if document has an unpublished draft)
+              </label>
+              <div className="flex gap-2">
+                <button
+                  disabled={save.isPending || draftName.trim() === ''}
+                  onClick={() => save.mutate()}
+                  className="bg-emerald-500 text-emerald-950 rounded px-3 py-1 text-sm font-medium disabled:opacity-40"
+                >
+                  {save.isPending ? 'saving…' : 'Save'}
+                </button>
+                <button
+                  onClick={() => { setEditing(false); setDraftDesc(''); setDraftName(''); setClearExistingDraft(false); }}
+                  className="text-zinc-400 hover:text-zinc-200 text-sm px-3 py-1"
+                >
+                  Cancel
+                </button>
+                {save.error && <span className="text-xs text-red-400 self-center">{(save.error as Error).message}</span>}
+              </div>
             </div>
           ) : (
-            <CurrentDescription instanceId={instanceId} docId={docId} />
+            <div className={`text-sm mt-1 whitespace-pre-wrap ${description ? 'text-zinc-400' : 'text-zinc-600 italic'}`}>
+              {description || '(no description)'}
+            </div>
           )}
         </div>
         {!editing && (
@@ -185,18 +170,3 @@ function DocumentRow({
   );
 }
 
-function CurrentDescription({ instanceId, docId }: { instanceId: string; docId: string }) {
-  const doc = useQuery({
-    queryKey: ['doc', instanceId, docId],
-    queryFn: () => api.getDoc(instanceId, docId),
-    staleTime: 60_000,
-  });
-  if (doc.isLoading) return <div className="text-xs text-zinc-600 mt-1">loading…</div>;
-  if (doc.error) return <div className="text-xs text-red-400 mt-1">{(doc.error as Error).message}</div>;
-  const desc = doc.data?.description;
-  return (
-    <div className={`text-sm mt-1 whitespace-pre-wrap ${desc ? 'text-zinc-400' : 'text-zinc-600 italic'}`}>
-      {desc || '(no description)'}
-    </div>
-  );
-}
