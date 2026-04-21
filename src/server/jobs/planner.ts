@@ -25,9 +25,10 @@ export async function buildPlan(input: PlanInput): Promise<JobPlan> {
     const dest = getInstance(destId);
     if (!dest) throw new Error(`destination not found: ${destId}`);
 
+    const destClient = new OmniClient(dest);
+    const existing = await destClient.listFolder(dest.folderId);
+
     if (input.emptyFirst) {
-      const destClient = new OmniClient(dest);
-      const existing = await destClient.listFolder(dest.folderId);
       for (const d of existing) {
         steps.push({
           destId,
@@ -36,6 +37,19 @@ export async function buildPlan(input: PlanInput): Promise<JobPlan> {
           docId: d.identifier,
           docName: d.name,
         });
+      }
+    } else {
+      const pickedNames = new Set(picked.map(p => p.name));
+      for (const d of existing) {
+        if (pickedNames.has(d.name)) {
+          steps.push({
+            destId,
+            destLabel: dest.label,
+            kind: 'delete',
+            docId: d.identifier,
+            docName: d.name,
+          });
+        }
       }
     }
 
