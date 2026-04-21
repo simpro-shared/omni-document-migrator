@@ -1,10 +1,15 @@
 import { createHash } from 'node:crypto';
-import type { Job, JobItem, JobStatus } from '../../shared/types.js';
+import type { Job, JobItem, JobStatus, OmniLabel } from '../../shared/types.js';
 import { getInstance } from '../storage/vault.js';
 import { OmniClient, OmniError } from '../omni/client.js';
 import type { OmniExportPayload } from '../omni/types.js';
 import { getItems, updateItem, updateJob } from '../storage/repo.js';
 import { publish } from './events.js';
+
+interface SourceMeta {
+  description: string | null;
+  labels: string[];
+}
 
 const running = new Set<string>();
 
@@ -44,9 +49,31 @@ async function executeJob(job: Job): Promise<void> {
 
   const exportCache = new Map<string, { payload: OmniExportPayload; hash: string }>();
 
+  const sourceMeta = new Map<string, SourceMeta>();
+  const sourceLabelDefs = new Map<string, OmniLabel>();
+  try {
+    const docs = await sourceClient.listFolder(source.folderId, { includeLabels: true });
+    for (const d of docs) {
+      sourceMeta.set(d.identifier, {
+        description: d.description ?? null,
+        labels: Array.isArray(d.labels) ? d.labels : [],
+      });
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[migrator] failed to list source folder with labels: ${msg}`);
+  }
+  try {
+    const allLabels = await sourceClient.listLabels();
+    for (const l of allLabels) sourceLabelDefs.set(l.name, l);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[migrator] failed to list source labels: ${msg}`);
+  }
+
   await Promise.all(
     Array.from(byDest.entries()).map(([destId, destItems]) =>
-      runDestination(job.id, destId, destItems, sourceClient, exportCache),
+      runDestination(job.id, destId, destItems, sourceClient, exportCache, sourceMeta, sourceLabelDefs),
     ),
   );
 
@@ -63,6 +90,8 @@ async function runDestination(
   items: JobItem[],
   sourceClient: OmniClient,
   exportCache: Map<string, { payload: OmniExportPayload; hash: string }>,
+  sourceMeta: Map<string, SourceMeta>,
+  sourceLabelDefs: Map<string, OmniLabel>,
 ): Promise<void> {
   const dest = getInstance(destId);
   if (!dest) {
@@ -70,6 +99,15 @@ async function runDestination(
     return;
   }
   const destClient = new OmniClient(dest);
+  let destLabelsLoaded = false;
+  const destLabels = new Set<string>();
+  const ensureDestLabels = async (): Promise<void> => {
+    if (destLabelsLoaded) return;
+    const list = await destClient.listLabels();
+    for (const l of list) destLabels.add(l.name);
+    destLabelsLoaded = true;
+  };
+  const importedIdBySourceDoc = new Map<string, string>();
 
   for (const item of items) {
     const startedAt = Date.now();
@@ -93,12 +131,51 @@ async function runDestination(
         if (!item.docId) throw new Error('import item missing docId');
         const cached = exportCache.get(item.docId);
         if (!cached) throw new Error('export missing for import step (planner invariant violated)');
-        await destClient.importDoc({
+        const docName = item.docName ?? cached.payload.document?.name ?? 'Untitled';
+        const imported = await destClient.importDoc({
           exportPayload: cached.payload,
           baseModelId: dest.modelId,
           folderPath: dest.folderPath,
-          documentName: item.docName ?? cached.payload.document?.name ?? 'Untitled',
+          documentName: docName,
         });
+        let newId = imported.identifier;
+        if (!newId) {
+          const docs = await destClient.listFolder(dest.folderId);
+          const matches = docs.filter(d => d.name === docName);
+          matches.sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
+          newId = matches[0]?.identifier ?? '';
+        }
+        if (!newId) {
+          throw new Error(`import succeeded but could not resolve destination identifier. raw response: ${JSON.stringify(imported.raw)}`);
+        }
+        importedIdBySourceDoc.set(item.docId, newId);
+      } else if (item.kind === 'meta') {
+        if (!item.docId) throw new Error('meta item missing docId');
+        const newId = importedIdBySourceDoc.get(item.docId);
+        if (!newId) throw new Error('no imported identifier available for metadata step');
+        const meta = sourceMeta.get(item.docId);
+        if (!meta) throw new Error(`source metadata missing for ${item.docId}`);
+        if (meta.description !== null && meta.description !== undefined && meta.description !== '') {
+          await destClient.patchDoc(newId, { description: meta.description, clearExistingDraft: true });
+        }
+        if (meta.labels.length > 0) {
+          await ensureDestLabels();
+          for (const name of meta.labels) {
+            if (destLabels.has(name)) continue;
+            const def = sourceLabelDefs.get(name);
+            try {
+              await destClient.createLabel({
+                name,
+                color: def?.color ?? null,
+                description: def?.description ?? null,
+              });
+            } catch (err) {
+              if (!(err instanceof OmniError && err.status === 409)) throw err;
+            }
+            destLabels.add(name);
+          }
+          await destClient.setDocumentLabels(newId, meta.labels);
+        }
       }
       succeed(jobId, item.id);
     } catch (err) {

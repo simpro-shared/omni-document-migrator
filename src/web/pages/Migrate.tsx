@@ -185,5 +185,6 @@ function PlanView({ plan }: { plan: JobPlan }) {
 function kindColor(k: string): string {
   if (k === 'delete') return 'text-red-400';
   if (k === 'export') return 'text-amber-400';
+  if (k === 'meta') return 'text-sky-400';
   return 'text-emerald-400';
 }

@@ -21,7 +21,21 @@ export interface OmniDocumentRecord {
   folderId?: string;
   type?: string;
   updatedAt?: string;
+  description?: string | null;
+  labels?: string[];
   [key: string]: unknown;
+}
+
+export interface OmniLabelRecord {
+  name: string;
+  color?: string | null;
+  description?: string | null;
+  isVerified?: boolean;
+  isHomepageSection?: boolean;
+}
+
+export interface OmniLabelsListResponse {
+  labels: OmniLabelRecord[];
 }
 
 export interface OmniPageInfo {

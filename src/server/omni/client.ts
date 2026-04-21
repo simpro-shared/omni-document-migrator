@@ -1,5 +1,5 @@
-import type { Instance, OmniDoc } from '../../shared/types.js';
-import type { OmniExportPayload, OmniImportResponse, OmniListResponse } from './types.js';
+import type { Instance, OmniDoc, OmniLabel } from '../../shared/types.js';
+import type { OmniExportPayload, OmniImportResponse, OmniLabelsListResponse, OmniListResponse } from './types.js';
 
 const TIMEOUT_MS = 60_000;
 
@@ -74,12 +74,13 @@ export class OmniClient {
     throw lastErr instanceof Error ? lastErr : new Error('omni request failed');
   }
 
-  async listFolder(folderId: string): Promise<OmniDoc[]> {
+  async listFolder(folderId: string, opts: { includeLabels?: boolean } = {}): Promise<OmniDoc[]> {
     const out: OmniDoc[] = [];
     let cursor: string | undefined;
+    const include = opts.includeLabels ? 'labels' : undefined;
     do {
       const res = await this.request('GET', '/api/v1/documents', {
-        query: { folderId, pageSize: 100, cursor },
+        query: { folderId, pageSize: 100, cursor, include },
       });
       const data = await res.json() as OmniListResponse;
       for (const r of data.records) {
@@ -89,11 +90,39 @@ export class OmniClient {
           folderId: r.folderId,
           type: r.type,
           updatedAt: r.updatedAt,
+          description: r.description ?? null,
+          labels: Array.isArray(r.labels) ? r.labels : undefined,
         });
       }
       cursor = data.pageInfo?.hasNextPage ? data.pageInfo.nextCursor ?? undefined : undefined;
     } while (cursor);
     return out;
+  }
+
+  async listLabels(): Promise<OmniLabel[]> {
+    const res = await this.request('GET', '/api/v1/labels');
+    const data = await res.json() as OmniLabelsListResponse;
+    return (data.labels ?? []).map(l => ({
+      name: l.name,
+      color: l.color ?? null,
+      description: l.description ?? null,
+      isVerified: l.isVerified,
+      isHomepageSection: l.isHomepageSection,
+    }));
+  }
+
+  async createLabel(body: { name: string; color?: string | null; description?: string | null; isVerified?: boolean; isHomepageSection?: boolean }): Promise<void> {
+    const payload: Record<string, unknown> = { name: body.name };
+    if (body.color) payload.color = body.color;
+    if (body.description !== undefined && body.description !== null) payload.description = body.description;
+    await this.request('POST', '/api/v1/labels', { body: payload });
+  }
+
+  async setDocumentLabels(identifier: string, add: string[], remove: string[] = []): Promise<void> {
+    if (add.length === 0 && remove.length === 0) return;
+    await this.request('PATCH', `/api/v1/documents/${encodeURIComponent(identifier)}/labels`, {
+      body: { add, remove },
+    });
   }
 
   async exportDoc(identifier: string): Promise<OmniExportPayload> {
@@ -106,7 +135,7 @@ export class OmniClient {
     baseModelId: string;
     folderPath: string;
     documentName: string;
-  }): Promise<OmniImportResponse> {
+  }): Promise<OmniImportResponse & { raw: unknown }> {
     const { exportPayload, baseModelId, folderPath, documentName } = body;
     const payload: Record<string, unknown> = {
       ...exportPayload,
@@ -116,7 +145,18 @@ export class OmniClient {
     if (folderPath) payload.folderPath = folderPath;
     delete payload.identifier;
     const res = await this.request('POST', '/api/unstable/documents/import', { body: payload });
-    return await res.json() as OmniImportResponse;
+    const raw = await res.json() as Record<string, unknown>;
+    const identifier =
+      (typeof raw.identifier === 'string' ? raw.identifier : undefined) ??
+      (raw.document && typeof (raw.document as any).identifier === 'string' ? (raw.document as any).identifier : undefined) ??
+      (typeof raw.miniUuid === 'string' ? raw.miniUuid : undefined) ??
+      '';
+    const documentId =
+      (typeof raw.documentId === 'string' ? raw.documentId : undefined) ??
+      (typeof raw.id === 'string' ? raw.id : undefined) ??
+      (raw.document && typeof (raw.document as any).id === 'string' ? (raw.document as any).id : undefined) ??
+      '';
+    return { documentId, identifier, raw };
   }
 
   async deleteDoc(identifier: string): Promise<void> {

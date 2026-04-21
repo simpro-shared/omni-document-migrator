@@ -54,6 +54,13 @@ export async function buildPlan(input: PlanInput): Promise<JobPlan> {
         docId: doc.identifier,
         docName: doc.name,
       });
+      steps.push({
+        destId,
+        destLabel: dest.label,
+        kind: 'meta',
+        docId: doc.identifier,
+        docName: doc.name,
+      });
     }
   }
 

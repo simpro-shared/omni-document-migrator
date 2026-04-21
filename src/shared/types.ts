@@ -20,9 +20,19 @@ export interface OmniDoc {
   folderId?: string;
   type?: string;
   updatedAt?: string;
+  description?: string | null;
+  labels?: string[];
 }
 
-export type JobItemKind = 'delete' | 'export' | 'import';
+export interface OmniLabel {
+  name: string;
+  color?: string | null;
+  description?: string | null;
+  isVerified?: boolean;
+  isHomepageSection?: boolean;
+}
+
+export type JobItemKind = 'delete' | 'export' | 'import' | 'meta';
 export type JobItemStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped';
 export type JobStatus =
   | 'pending'
