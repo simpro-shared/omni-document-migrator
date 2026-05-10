@@ -25,7 +25,7 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col">
       <header className="border-b border-zinc-800 px-6 py-3 flex items-center gap-6">
-        <h1 className="font-semibold text-zinc-200">Omni Document Migrator</h1>
+        <h1 className="font-semibold text-zinc-200">Omni Multi-Instance Tools</h1>
         <nav className="flex gap-4 text-sm">
           <NavLink to="/dashboard" className={navClass}>Dashboard</NavLink>
           <NavLink to="/migrate" className={navClass}>Migrate</NavLink>
