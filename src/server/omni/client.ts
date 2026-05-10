@@ -1,5 +1,5 @@
 import type { Instance, OmniDoc, OmniLabel } from '../../shared/types.js';
-import type { OmniExportPayload, OmniImportResponse, OmniLabelsListResponse, OmniListResponse } from './types.js';
+import type { OmniConnection, OmniExportPayload, OmniImportResponse, OmniLabelsListResponse, OmniListResponse, OmniSchemaModel } from './types.js';
 
 const TIMEOUT_MS = 60_000;
 // Omni API limit: 60 req/min per key. Leave headroom → ~50/min ≈ 1200ms between requests.
@@ -199,6 +199,26 @@ export class OmniClient {
 
   async patchDoc(identifier: string, body: { name?: string; description?: string | null; clearExistingDraft?: boolean }): Promise<void> {
     await this.request('PATCH', `/api/v1/documents/${encodeURIComponent(identifier)}`, { body });
+  }
+
+  async listConnections(): Promise<OmniConnection[]> {
+    const res = await this.request('GET', '/api/v1/connections');
+    const data = await res.json() as { connections: OmniConnection[] };
+    return data.connections ?? [];
+  }
+
+  async listSchemaModels(): Promise<OmniSchemaModel[]> {
+    const out: OmniSchemaModel[] = [];
+    let cursor: string | undefined;
+    do {
+      const res = await this.request('GET', '/api/v1/models', {
+        query: { pageSize: 100, sortDirection: 'desc', sortField: 'updatedAt', modelKind: 'SCHEMA', ...(cursor ? { cursor } : {}) },
+      });
+      const data = await res.json() as { pageInfo?: { hasNextPage?: boolean; nextCursor?: string }; records: OmniSchemaModel[] };
+      out.push(...(data.records ?? []));
+      cursor = data.pageInfo?.hasNextPage ? data.pageInfo.nextCursor ?? undefined : undefined;
+    } while (cursor);
+    return out;
   }
 }
 

@@ -7,6 +7,7 @@ import { unlockRoutes } from './routes/unlock.js';
 import { instanceRoutes } from './routes/instances.js';
 import { folderRoutes } from './routes/folders.js';
 import { jobRoutes } from './routes/jobs.js';
+import { dashboardRoutes } from './routes/dashboard.js';
 import { getDb } from './storage/db.js';
 
 const HOST = '127.0.0.1';
@@ -32,6 +33,7 @@ async function main(): Promise<void> {
   await app.register(instanceRoutes);
   await app.register(folderRoutes);
   await app.register(jobRoutes);
+  await app.register(dashboardRoutes);
 
   const here = dirname(fileURLToPath(import.meta.url));
   const webDist = resolve(here, '../web');

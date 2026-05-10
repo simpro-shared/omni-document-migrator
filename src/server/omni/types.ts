@@ -47,3 +47,23 @@ export interface OmniListResponse {
   pageInfo: OmniPageInfo;
   records: OmniDocumentRecord[];
 }
+
+export interface OmniConnection {
+  id: string;
+  name: string;
+  dialect: string;
+  database: string;
+  baseRole?: string;
+  deletedAt?: string | null;
+  defaultSchema?: string;
+  [key: string]: unknown;
+}
+
+export interface OmniSchemaModel {
+  id: string;
+  connectionId: string;
+  modelKind: string;
+  name: string;
+  deletedAt?: string | null;
+  [key: string]: unknown;
+}

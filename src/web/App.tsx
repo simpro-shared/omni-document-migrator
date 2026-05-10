@@ -2,6 +2,7 @@ import { Route, Routes, NavLink, Navigate, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './lib/api';
 import Unlock from './pages/Unlock';
+import Dashboard from './pages/Dashboard';
 import Instances from './pages/Instances';
 import Migrate from './pages/Migrate';
 import Documents from './pages/Documents';
@@ -26,6 +27,7 @@ export default function App() {
       <header className="border-b border-zinc-800 px-6 py-3 flex items-center gap-6">
         <h1 className="font-semibold text-zinc-200">Omni Document Migrator</h1>
         <nav className="flex gap-4 text-sm">
+          <NavLink to="/dashboard" className={navClass}>Dashboard</NavLink>
           <NavLink to="/migrate" className={navClass}>Migrate</NavLink>
           <NavLink to="/documents" className={navClass}>Documents</NavLink>
           <NavLink to="/instances" className={navClass}>Instances</NavLink>
@@ -46,7 +48,8 @@ export default function App() {
       </header>
       <main className="flex-1 p-6 max-w-6xl w-full mx-auto">
         <Routes>
-          <Route path="/" element={<Navigate to="/migrate" replace />} />
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/migrate" element={<Migrate />} />
           <Route path="/documents" element={<Documents />} />
           <Route path="/instances" element={<Instances />} />

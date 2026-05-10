@@ -8,6 +8,24 @@ import type {
   JobWithItems,
 } from '../../shared/types';
 
+export interface ConnectionStat {
+  id: string;
+  name: string;
+  dialect: string;
+  database: string;
+  hasSchemaModel: boolean;
+}
+
+export interface InstanceDashboardStats {
+  instanceId: string;
+  instanceLabel: string;
+  instanceRole: string;
+  baseUrl: string;
+  totalConnections: number;
+  connections: ConnectionStat[];
+  error?: string;
+}
+
 async function j<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -80,4 +98,6 @@ export const api = {
     fetch(`/api/jobs/${id}/retry`, { method: 'POST' }).then(j<{ job: Job }>),
   listJobs: () => fetch('/api/jobs').then(j<Job[]>),
   getJob: (id: string) => fetch(`/api/jobs/${id}`).then(j<JobWithItems & { running: boolean }>),
+
+  getDashboardStats: () => fetch('/api/dashboard/stats').then(j<InstanceDashboardStats[]>),
 };
