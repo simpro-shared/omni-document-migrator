@@ -1,5 +1,5 @@
 import type { Instance, OmniDoc, OmniLabel } from '../../shared/types.js';
-import type { OmniConnection, OmniExportPayload, OmniImportResponse, OmniLabelsListResponse, OmniListResponse, OmniSchemaModel } from './types.js';
+import type { OmniConnection, OmniExportPayload, OmniImportResponse, OmniLabelsListResponse, OmniListResponse, OmniSchemaModel, ScimListResponse, ScimUser } from './types.js';
 
 const TIMEOUT_MS = 60_000;
 // Omni API limit: 60 req/min per key. Leave headroom → ~50/min ≈ 1200ms between requests.
@@ -205,6 +205,23 @@ export class OmniClient {
     const res = await this.request('GET', '/api/v1/connections');
     const data = await res.json() as { connections: OmniConnection[] };
     return data.connections ?? [];
+  }
+
+  async listEmbedUsers(): Promise<ScimUser[]> {
+    const out: ScimUser[] = [];
+    let startIndex = 1;
+    const count = 100;
+    while (true) {
+      const res = await this.request('GET', '/api/scim/v2/embed/users', {
+        query: { count, startIndex },
+      });
+      const data = await res.json() as ScimListResponse;
+      const resources = data.Resources ?? [];
+      out.push(...resources);
+      if (out.length >= data.totalResults || resources.length < count) break;
+      startIndex += resources.length;
+    }
+    return out;
   }
 
   async listSchemaModels(): Promise<OmniSchemaModel[]> {

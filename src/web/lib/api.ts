@@ -26,6 +26,24 @@ export interface InstanceDashboardStats {
   error?: string;
 }
 
+export interface EmbedUserStat {
+  id: string;
+  displayName: string;
+  userName: string;
+  active: boolean;
+  embedExternalId: string;
+  groups: Array<{ display: string; value: string }>;
+}
+
+export interface InstanceEmbedUserStats {
+  instanceId: string;
+  instanceLabel: string;
+  instanceRole: string;
+  baseUrl: string;
+  users: EmbedUserStat[];
+  error?: string;
+}
+
 async function j<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -100,4 +118,5 @@ export const api = {
   getJob: (id: string) => fetch(`/api/jobs/${id}`).then(j<JobWithItems & { running: boolean }>),
 
   getDashboardStats: () => fetch('/api/dashboard/stats').then(j<InstanceDashboardStats[]>),
+  getEmbedUserStats: () => fetch('/api/dashboard/embed-users').then(j<InstanceEmbedUserStats[]>),
 };

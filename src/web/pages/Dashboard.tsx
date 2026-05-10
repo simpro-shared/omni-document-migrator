@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
-import type { ConnectionStat, InstanceDashboardStats } from '../lib/api';
+import type { ConnectionStat, EmbedUserStat, InstanceDashboardStats, InstanceEmbedUserStats } from '../lib/api';
 
 // --- localStorage helpers ---
 
@@ -29,8 +29,41 @@ export function isDashboardEnabled(instanceId: string): boolean {
 
 // --- Dashboard ---
 
+type DashTab = 'connections' | 'users';
+
 export default function Dashboard() {
   const nav = useNavigate();
+  const [activeTab, setActiveTab] = useState<DashTab>('connections');
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-1 border-b border-zinc-800">
+        <TabButton label="Connections" active={activeTab === 'connections'} onClick={() => setActiveTab('connections')} />
+        <TabButton label="Users" active={activeTab === 'users'} onClick={() => setActiveTab('users')} />
+      </div>
+      {activeTab === 'connections' ? <ConnectionsTab nav={nav} /> : <UsersTab nav={nav} />}
+    </div>
+  );
+}
+
+function TabButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+        active
+          ? 'border-zinc-200 text-zinc-100'
+          : 'border-transparent text-zinc-500 hover:text-zinc-300'
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+// --- Connections Tab ---
+
+function ConnectionsTab({ nav }: { nav: ReturnType<typeof useNavigate> }) {
   const { data: allData, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: api.getDashboardStats,
@@ -41,7 +74,6 @@ export default function Dashboard() {
   const [search, setSearch] = useState<Record<string, string>>({});
   const [excluded, setExcluded] = useState<Record<string, Set<string>>>({});
 
-  // seed excluded from localStorage once data arrives
   useEffect(() => {
     if (!allData) return;
     setExcluded(prev => {
@@ -55,7 +87,6 @@ export default function Dashboard() {
     });
   }, [allData]);
 
-  // filter by dashboard enabled setting (re-evaluated each render when navigating back)
   const data = allData?.filter(i => isDashboardEnabled(i.instanceId));
 
   const toggleExpand = (id: string) =>
@@ -74,7 +105,7 @@ export default function Dashboard() {
     });
   };
 
-  if (isLoading) return <div className="text-zinc-400 text-sm">Loading dashboard…</div>;
+  if (isLoading) return <div className="text-zinc-400 text-sm">Loading…</div>;
 
   if (error) {
     return (
@@ -114,7 +145,7 @@ export default function Dashboard() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-zinc-200 font-semibold text-lg">Dashboard</h2>
+        <h2 className="text-zinc-200 font-semibold text-lg">Connections</h2>
         <button
           className="text-xs text-zinc-400 hover:text-zinc-200 disabled:opacity-40"
           onClick={() => refetch()}
@@ -145,6 +176,230 @@ export default function Dashboard() {
         ))}
       </div>
     </div>
+  );
+}
+
+// --- Users Tab ---
+
+const ALL_EMBED_USERS_GROUP = 'All Embed Users';
+
+function UsersTab({ nav }: { nav: ReturnType<typeof useNavigate> }) {
+  const { data: allData, isLoading, error, refetch, isFetching } = useQuery({
+    queryKey: ['dashboard-embed-users'],
+    queryFn: api.getEmbedUserStats,
+    staleTime: 60_000,
+  });
+
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState<Record<string, string>>({});
+
+  const data = allData?.filter(i => isDashboardEnabled(i.instanceId));
+
+  const toggleExpand = (id: string) =>
+    setExpanded(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  if (isLoading) return <div className="text-zinc-400 text-sm">Loading…</div>;
+
+  if (error) {
+    return (
+      <div className="text-red-400 text-sm">
+        Failed to load users: {error instanceof Error ? error.message : 'unknown error'}
+      </div>
+    );
+  }
+
+  if (!data || data.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
+        <p className="text-zinc-400 text-sm">
+          {allData && allData.length > 0
+            ? 'All instances are disabled on the dashboard. Enable them from the Instances tab.'
+            : 'No instances configured.'}
+        </p>
+        <button
+          className="px-4 py-2 text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded"
+          onClick={() => nav('/instances')}
+        >
+          Go to Instances →
+        </button>
+      </div>
+    );
+  }
+
+  const totalUsers = data.reduce((sum, i) => sum + i.users.length, 0);
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-zinc-200 font-semibold text-lg">Embed Users</h2>
+        <button
+          className="text-xs text-zinc-400 hover:text-zinc-200 disabled:opacity-40"
+          onClick={() => refetch()}
+          disabled={isFetching}
+        >
+          {isFetching ? 'refreshing…' : 'refresh'}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+        <StatCard label="Instances" value={data.length} />
+        <StatCard label="Total Embed Users" value={totalUsers} />
+      </div>
+
+      <div className="flex flex-col gap-3">
+        {data.map(inst => (
+          <UserInstanceCard
+            key={inst.instanceId}
+            inst={inst}
+            isExpanded={expanded.has(inst.instanceId)}
+            onToggleExpand={() => toggleExpand(inst.instanceId)}
+            search={search[inst.instanceId] ?? ''}
+            onSearchChange={v => setSearch(prev => ({ ...prev, [inst.instanceId]: v }))}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function UserInstanceCard({
+  inst,
+  isExpanded,
+  onToggleExpand,
+  search,
+  onSearchChange,
+}: {
+  inst: InstanceEmbedUserStats;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+  search: string;
+  onSearchChange: (v: string) => void;
+}) {
+  const groups = groupUsersByGroup(inst.users);
+  const groupNames = Object.keys(groups).sort();
+
+  const filteredGroups: Record<string, EmbedUserStat[]> = {};
+  if (search.trim()) {
+    const q = search.toLowerCase();
+    for (const g of groupNames) {
+      const matched = groups[g]!.filter(
+        u =>
+          u.displayName.toLowerCase().includes(q) ||
+          u.embedExternalId.toLowerCase().includes(q) ||
+          u.userName.toLowerCase().includes(q)
+      );
+      if (matched.length > 0) filteredGroups[g] = matched;
+    }
+  } else {
+    for (const g of groupNames) filteredGroups[g] = groups[g]!;
+  }
+
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900">
+      <button
+        className="w-full flex items-center justify-between gap-2 p-4 text-left"
+        onClick={onToggleExpand}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-zinc-400 text-xs w-3">{isExpanded ? '▾' : '▸'}</span>
+          <span className="text-zinc-100 font-medium truncate">{inst.instanceLabel}</span>
+          <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 capitalize shrink-0">
+            {inst.instanceRole}
+          </span>
+        </div>
+        <div className="flex items-center gap-3 shrink-0 text-xs">
+          {inst.error ? (
+            <span className="text-red-400">error</span>
+          ) : (
+            <>
+              <span className="text-zinc-400">
+                <span className="text-zinc-200 font-medium">{inst.users.length}</span>
+                {' '}user{inst.users.length !== 1 ? 's' : ''}
+              </span>
+              <span className="text-zinc-600">{groupNames.length} group{groupNames.length !== 1 ? 's' : ''}</span>
+            </>
+          )}
+          <span className="text-zinc-600">{new URL(inst.baseUrl).hostname}</span>
+        </div>
+      </button>
+
+      {isExpanded && (
+        <div className="border-t border-zinc-800 px-4 pb-4 pt-3 flex flex-col gap-3">
+          {inst.error ? (
+            <p className="text-xs text-red-400">Error: {inst.error}</p>
+          ) : (
+            <>
+              <input
+                type="search"
+                value={search}
+                onChange={e => onSearchChange(e.target.value)}
+                placeholder="Search users…"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+              />
+              {Object.keys(filteredGroups).length === 0 ? (
+                <p className="text-xs text-zinc-500">No users match.</p>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  {Object.keys(filteredGroups).sort().map(groupName => (
+                    <div key={groupName}>
+                      <div className="text-xs font-medium text-zinc-400 mb-1.5">{groupName} <span className="text-zinc-600">({filteredGroups[groupName]!.length})</span></div>
+                      <UserTable users={filteredGroups[groupName]!} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function groupUsersByGroup(users: EmbedUserStat[]): Record<string, EmbedUserStat[]> {
+  const out: Record<string, EmbedUserStat[]> = {};
+  for (const u of users) {
+    const relevantGroups = u.groups.filter(g => g.display !== ALL_EMBED_USERS_GROUP);
+    if (relevantGroups.length === 0) {
+      const key = '(No Group)';
+      (out[key] ??= []).push(u);
+    } else {
+      for (const g of relevantGroups) {
+        (out[g.display] ??= []).push(u);
+      }
+    }
+  }
+  return out;
+}
+
+function UserTable({ users }: { users: EmbedUserStat[] }) {
+  return (
+    <table className="w-full text-xs border-collapse">
+      <thead>
+        <tr className="border-b border-zinc-800 text-zinc-500 text-left">
+          <th className="pb-1 pr-4 font-normal">Display Name</th>
+          <th className="pb-1 pr-4 font-normal">External ID</th>
+          <th className="pb-1 font-normal">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {users.map(u => (
+          <tr key={u.id} className="border-b border-zinc-800/50 last:border-0">
+            <td className="py-1.5 pr-4 text-zinc-300">{u.displayName}</td>
+            <td className="py-1.5 pr-4 text-zinc-400 font-mono">{u.embedExternalId || '—'}</td>
+            <td className="py-1.5">
+              {u.active
+                ? <span className="text-emerald-400">active</span>
+                : <span className="text-zinc-600">inactive</span>}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -193,7 +448,6 @@ function InstanceCard({
 
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900">
-      {/* Header — always visible */}
       <button
         className="w-full flex items-center justify-between gap-2 p-4 text-left"
         onClick={onToggleExpand}
@@ -227,7 +481,6 @@ function InstanceCard({
         </div>
       </button>
 
-      {/* Expanded content */}
       {isExpanded && (
         <div className="border-t border-zinc-800 px-4 pb-4 pt-3 flex flex-col gap-3">
           {inst.error ? (

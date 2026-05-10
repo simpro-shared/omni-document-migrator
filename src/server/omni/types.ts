@@ -67,3 +67,28 @@ export interface OmniSchemaModel {
   deletedAt?: string | null;
   [key: string]: unknown;
 }
+
+export interface ScimUserGroup {
+  display: string;
+  value: string;
+}
+
+export interface ScimUser {
+  id: string;
+  displayName: string;
+  active: boolean;
+  userName: string;
+  embedEmail: string | null;
+  embedEntity: string;
+  embedExternalId: string;
+  emails: Array<{ primary: boolean; value: string }>;
+  groups: ScimUserGroup[];
+  meta: { created: string; lastModified: string; resourceType: string };
+}
+
+export interface ScimListResponse {
+  Resources: ScimUser[];
+  itemsPerPage: number;
+  startIndex: number;
+  totalResults: number;
+}
