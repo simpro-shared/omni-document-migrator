@@ -224,6 +224,11 @@ export class OmniClient {
     return out;
   }
 
+  async refreshSchemaModel(modelId: string): Promise<{ jobId: string; modelId: string; status: string }> {
+    const res = await this.request('POST', `/api/v1/models/${encodeURIComponent(modelId)}/refresh`);
+    return await res.json() as { jobId: string; modelId: string; status: string };
+  }
+
   async listSchemaModels(): Promise<OmniSchemaModel[]> {
     const out: OmniSchemaModel[] = [];
     let cursor: string | undefined;

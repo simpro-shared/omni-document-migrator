@@ -14,6 +14,7 @@ export interface ConnectionStat {
   dialect: string;
   database: string;
   hasSchemaModel: boolean;
+  schemaModelId: string | null;
 }
 
 export interface InstanceDashboardStats {
@@ -119,4 +120,11 @@ export const api = {
 
   getDashboardStats: () => fetch('/api/dashboard/stats').then(j<InstanceDashboardStats[]>),
   getEmbedUserStats: () => fetch('/api/dashboard/embed-users').then(j<InstanceEmbedUserStats[]>),
+
+  refreshSchema: (instanceId: string, modelId: string) =>
+    fetch(`/api/dashboard/${instanceId}/refresh-schema`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modelId }),
+    }).then(j<{ jobId: string; modelId: string; status: string }>),
 };

@@ -416,6 +416,8 @@ function StatCard({ label, value, highlight }: { label: string; value: number; h
   );
 }
 
+type RefreshStatus = 'idle' | 'pending' | 'ok' | 'error';
+
 function InstanceCard({
   inst,
   isExpanded,
@@ -433,6 +435,9 @@ function InstanceCard({
   excludedIds: Set<string>;
   onToggleExclude: (id: string) => void;
 }) {
+  const [refreshStatus, setRefreshStatus] = useState<Record<string, RefreshStatus>>({});
+  const [refreshError, setRefreshError] = useState<Record<string, string>>({});
+
   const activeConnections = inst.connections.filter(c => !excludedIds.has(c.id));
   const missing = activeConnections.filter(c => !c.hasSchemaModel);
   const excludedCount = inst.connections.length - activeConnections.length;
@@ -445,6 +450,27 @@ function InstanceCard({
           c.dialect.toLowerCase().includes(search.toLowerCase())
       )
     : inst.connections;
+
+  const refreshOne = async (c: ConnectionStat) => {
+    if (!c.schemaModelId) return;
+    setRefreshStatus(prev => ({ ...prev, [c.id]: 'pending' }));
+    setRefreshError(prev => { const n = { ...prev }; delete n[c.id]; return n; });
+    try {
+      await api.refreshSchema(inst.instanceId, c.schemaModelId);
+      setRefreshStatus(prev => ({ ...prev, [c.id]: 'ok' }));
+    } catch (err) {
+      setRefreshStatus(prev => ({ ...prev, [c.id]: 'error' }));
+      setRefreshError(prev => ({ ...prev, [c.id]: err instanceof Error ? err.message : 'failed' }));
+    }
+  };
+
+  const refreshAll = () => {
+    const targets = activeConnections.filter(c => c.schemaModelId);
+    for (const c of targets) refreshOne(c);
+  };
+
+  const bulkPending = activeConnections.some(c => refreshStatus[c.id] === 'pending');
+  const refreshableCount = activeConnections.filter(c => c.schemaModelId).length;
 
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900">
@@ -487,13 +513,25 @@ function InstanceCard({
             <p className="text-xs text-red-400">Error: {inst.error}</p>
           ) : (
             <>
-              <input
-                type="search"
-                value={search}
-                onChange={e => onSearchChange(e.target.value)}
-                placeholder="Search connections…"
-                className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="search"
+                  value={search}
+                  onChange={e => onSearchChange(e.target.value)}
+                  placeholder="Search connections…"
+                  className="flex-1 bg-zinc-950 border border-zinc-700 rounded px-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+                />
+                {refreshableCount > 0 && (
+                  <button
+                    onClick={refreshAll}
+                    disabled={bulkPending}
+                    title={`Refresh schema for all ${refreshableCount} non-excluded connection${refreshableCount !== 1 ? 's' : ''}`}
+                    className="shrink-0 px-2.5 py-1.5 text-xs rounded border border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {bulkPending ? 'refreshing…' : `Refresh All (${refreshableCount})`}
+                  </button>
+                )}
+              </div>
               {filtered.length === 0 ? (
                 <p className="text-xs text-zinc-500">No connections match.</p>
               ) : (
@@ -501,6 +539,9 @@ function InstanceCard({
                   connections={filtered}
                   excludedIds={excludedIds}
                   onToggleExclude={onToggleExclude}
+                  refreshStatus={refreshStatus}
+                  refreshError={refreshError}
+                  onRefresh={refreshOne}
                 />
               )}
             </>
@@ -515,10 +556,16 @@ function ConnectionTable({
   connections,
   excludedIds,
   onToggleExclude,
+  refreshStatus,
+  refreshError,
+  onRefresh,
 }: {
   connections: ConnectionStat[];
   excludedIds: Set<string>;
   onToggleExclude: (id: string) => void;
+  refreshStatus: Record<string, RefreshStatus>;
+  refreshError: Record<string, string>;
+  onRefresh: (c: ConnectionStat) => void;
 }) {
   return (
     <table className="w-full text-xs border-collapse">
@@ -528,12 +575,15 @@ function ConnectionTable({
           <th className="pb-1 pr-4 font-normal">Database</th>
           <th className="pb-1 pr-4 font-normal">Dialect</th>
           <th className="pb-1 pr-4 font-normal">Schema Model</th>
+          <th className="pb-1 pr-2 font-normal text-center">Refresh</th>
           <th className="pb-1 font-normal text-right">Count</th>
         </tr>
       </thead>
       <tbody>
         {connections.map(c => {
           const isExcluded = excludedIds.has(c.id);
+          const status = refreshStatus[c.id] ?? 'idle';
+          const errMsg = refreshError[c.id];
           return (
             <tr
               key={c.id}
@@ -547,6 +597,25 @@ function ConnectionTable({
                   <span className="text-emerald-400">✓</span>
                 ) : (
                   <span className="text-amber-400">missing</span>
+                )}
+              </td>
+              <td className="py-1.5 pr-2 text-center">
+                {c.schemaModelId ? (
+                  <button
+                    onClick={() => onRefresh(c)}
+                    disabled={status === 'pending'}
+                    title={errMsg ?? (status === 'ok' ? 'Refresh queued' : 'Refresh schema')}
+                    className={`px-1.5 py-0.5 rounded text-xs transition-colors disabled:cursor-not-allowed ${
+                      status === 'pending' ? 'text-zinc-500' :
+                      status === 'ok' ? 'text-emerald-400 hover:text-emerald-300' :
+                      status === 'error' ? 'text-red-400 hover:text-red-300' :
+                      'text-zinc-600 hover:text-zinc-300'
+                    }`}
+                  >
+                    {status === 'pending' ? '…' : status === 'ok' ? '✓' : status === 'error' ? '✗' : '↻'}
+                  </button>
+                ) : (
+                  <span className="text-zinc-700">—</span>
                 )}
               </td>
               <td className="py-1.5 text-right">

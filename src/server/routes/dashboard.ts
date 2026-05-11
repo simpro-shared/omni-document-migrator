@@ -8,6 +8,7 @@ export interface ConnectionStat {
   dialect: string;
   database: string;
   hasSchemaModel: boolean;
+  schemaModelId: string | null;
 }
 
 export interface InstanceDashboardStats {
@@ -63,7 +64,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
           .map(c => {
             const model = schemaModelByConnectionId.get(c.id);
             const hasSchemaModel = !!model && model.createdAt !== model.updatedAt;
-            return { id: c.id, name: c.name, dialect: c.dialect, database: c.database, hasSchemaModel };
+            return { id: c.id, name: c.name, dialect: c.dialect, database: c.database, hasSchemaModel, schemaModelId: model?.id ?? null };
           });
 
         return {
@@ -92,6 +93,18 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     });
 
     return stats;
+  });
+
+  app.post('/api/dashboard/:instanceId/refresh-schema', async (req, reply) => {
+    if (!isUnlocked()) return reply.code(423).send({ error: 'vault locked' });
+    const { instanceId } = req.params as { instanceId: string };
+    const { modelId } = req.body as { modelId: string };
+    if (!modelId) return reply.code(400).send({ error: 'modelId required' });
+    const inst = getInstance(instanceId);
+    if (!inst) return reply.code(404).send({ error: 'instance not found' });
+    const client = new OmniClient(inst);
+    const result = await client.refreshSchemaModel(modelId);
+    return result;
   });
 
   app.get('/api/dashboard/embed-users', async (_req, reply) => {
