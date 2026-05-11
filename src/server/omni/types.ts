@@ -64,6 +64,8 @@ export interface OmniSchemaModel {
   connectionId: string;
   modelKind: string;
   name: string;
+  createdAt: string;
+  updatedAt: string;
   deletedAt?: string | null;
   [key: string]: unknown;
 }

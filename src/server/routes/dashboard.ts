@@ -52,19 +52,19 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
           client.listSchemaModels(),
         ]);
 
-        const connectionIdsWithModel = new Set(
-          models.filter(m => !m.deletedAt).map(m => m.connectionId)
+        const schemaModelByConnectionId = new Map(
+          models
+            .filter(m => !m.deletedAt)
+            .map(m => [m.connectionId, m])
         );
 
         const connectionStats: ConnectionStat[] = connections
           .filter(c => !c.deletedAt)
-          .map(c => ({
-            id: c.id,
-            name: c.name,
-            dialect: c.dialect,
-            database: c.database,
-            hasSchemaModel: connectionIdsWithModel.has(c.id),
-          }));
+          .map(c => {
+            const model = schemaModelByConnectionId.get(c.id);
+            const hasSchemaModel = !!model && model.createdAt !== model.updatedAt;
+            return { id: c.id, name: c.name, dialect: c.dialect, database: c.database, hasSchemaModel };
+          });
 
         return {
           instanceId: inst.id,
