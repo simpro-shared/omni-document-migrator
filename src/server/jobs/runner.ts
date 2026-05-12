@@ -5,6 +5,7 @@ import { OmniClient, OmniError } from '../omni/client.js';
 import type { OmniExportPayload } from '../omni/types.js';
 import { getItems, updateItem, updateJob } from '../storage/repo.js';
 import { publish } from './events.js';
+import { runPostMigrationActions } from './postMigration.js';
 
 interface SourceMeta {
   description: string | null;
@@ -82,6 +83,20 @@ async function executeJob(job: Job): Promise<void> {
   const endedAt = Date.now();
   updateJob(job.id, { status: finalStatus, endedAt });
   publish({ jobId: job.id, type: 'job', status: finalStatus, at: endedAt });
+
+  if (job.postMigrationActions?.length) {
+    try {
+      const actionResults = await runPostMigrationActions(job.postMigrationActions);
+      for (const r of actionResults) {
+        const tag = r.ok ? '[ok]' : '[fail]';
+        console.log(`[post-migration] ${tag} ${r.method} ${r.url} → ${r.status ?? 'network error'}`);
+        if (r.responseBody) console.log(`[post-migration] response:\n${r.responseBody}`);
+        if (r.error) console.log(`[post-migration] error: ${r.error}`);
+      }
+    } catch (err) {
+      console.warn(`[migrator] post-migration actions failed for job ${job.id}:`, err);
+    }
+  }
 }
 
 async function runDestination(

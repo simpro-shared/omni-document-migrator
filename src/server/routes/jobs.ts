@@ -13,12 +13,21 @@ import {
   listJobs,
 } from '../storage/repo.js';
 import type { NewItem } from '../storage/repo.js';
+import { runPostMigrationActions } from '../jobs/postMigration.js';
+
+const actionSchema = z.object({
+  method: z.string().min(1),
+  url: z.string().url(),
+  headers: z.record(z.string()).default({}),
+  body: z.string().default(''),
+});
 
 const createInput = z.object({
   sourceId: z.string().uuid(),
   destIds: z.array(z.string().uuid()).min(1),
   docIds: z.array(z.string()).min(1),
   emptyFirst: z.boolean().default(false),
+  postMigrationActions: z.array(actionSchema).default([]),
 });
 
 export async function jobRoutes(app: FastifyInstance): Promise<void> {
@@ -29,11 +38,18 @@ export async function jobRoutes(app: FastifyInstance): Promise<void> {
     return plan;
   });
 
+  app.post('/api/actions/run', async (req, reply) => {
+    if (!isUnlocked()) return reply.code(423).send({ error: 'vault locked' });
+    const actions = z.array(actionSchema).parse(req.body);
+    const results = await runPostMigrationActions(actions);
+    return { results };
+  });
+
   app.post('/api/jobs', async (req, reply) => {
     if (!isUnlocked()) return reply.code(423).send({ error: 'vault locked' });
     const input = createInput.parse(req.body);
     const plan = await buildPlan(input);
-    const job = createJob(input);
+    const job = createJob({ ...input, postMigrationActions: input.postMigrationActions });
     const items: NewItem[] = plan.steps.map(s => ({
       jobId: job.id,
       destId: s.destId,

@@ -28,7 +28,8 @@ function migrate(d: Database.Database): void {
       created_at INTEGER NOT NULL,
       started_at INTEGER,
       ended_at INTEGER,
-      parent_job_id TEXT
+      parent_job_id TEXT,
+      post_migration_actions TEXT
     );
 
     CREATE TABLE IF NOT EXISTS job_items (
@@ -48,4 +49,6 @@ function migrate(d: Database.Database): void {
     CREATE INDEX IF NOT EXISTS job_items_job ON job_items(job_id);
     CREATE INDEX IF NOT EXISTS job_items_status ON job_items(job_id, status);
   `);
+  // add column for existing DBs that predate this field
+  try { d.exec(`ALTER TABLE jobs ADD COLUMN post_migration_actions TEXT`); } catch { /* already exists */ }
 }

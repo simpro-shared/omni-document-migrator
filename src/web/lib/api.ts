@@ -6,6 +6,8 @@ import type {
   JobPlan,
   Job,
   JobWithItems,
+  PostMigrationAction,
+  PostMigrationActionResult,
 } from '../../shared/types';
 
 export interface ConnectionStat {
@@ -15,6 +17,7 @@ export interface ConnectionStat {
   database: string;
   hasSchemaModel: boolean;
   schemaModelId: string | null;
+  schemaModelUpdatedAt: string | null;
 }
 
 export interface InstanceDashboardStats {
@@ -107,12 +110,18 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).then(j<JobPlan>),
-  createJob: (body: { sourceId: string; destIds: string[]; docIds: string[]; emptyFirst: boolean }) =>
+  createJob: (body: { sourceId: string; destIds: string[]; docIds: string[]; emptyFirst: boolean; postMigrationActions?: PostMigrationAction[] }) =>
     fetch('/api/jobs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).then(j<{ job: Job; plan: JobPlan }>),
+  runActions: (actions: PostMigrationAction[]) =>
+    fetch('/api/actions/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(actions),
+    }).then(j<{ results: PostMigrationActionResult[] }>),
   retryJob: (id: string) =>
     fetch(`/api/jobs/${id}/retry`, { method: 'POST' }).then(j<{ job: Job }>),
   listJobs: () => fetch('/api/jobs').then(j<Job[]>),
@@ -127,4 +136,5 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ modelId }),
     }).then(j<{ jobId: string; modelId: string; status: string }>),
+
 };

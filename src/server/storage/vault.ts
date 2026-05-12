@@ -104,3 +104,4 @@ export function deleteInstance(id: string): void {
   c.instances = c.instances.filter(i => i.id !== id);
   persist();
 }
+

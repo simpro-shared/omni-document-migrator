@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from './db.js';
-import type { Job, JobItem, JobItemKind, JobItemStatus, JobStatus } from '../../shared/types.js';
+import type { Job, JobItem, JobItemKind, JobItemStatus, JobStatus, PostMigrationAction } from '../../shared/types.js';
 
 interface JobRow {
   id: string;
@@ -13,6 +13,7 @@ interface JobRow {
   started_at: number | null;
   ended_at: number | null;
   parent_job_id: string | null;
+  post_migration_actions: string | null;
 }
 
 interface ItemRow {
@@ -41,6 +42,7 @@ function rowToJob(r: JobRow): Job {
     startedAt: r.started_at,
     endedAt: r.ended_at,
     parentJobId: r.parent_job_id,
+    postMigrationActions: r.post_migration_actions ? (JSON.parse(r.post_migration_actions) as PostMigrationAction[]) : [],
   };
 }
 
@@ -66,15 +68,17 @@ export interface CreateJobRow {
   docIds: string[];
   emptyFirst: boolean;
   parentJobId?: string;
+  postMigrationActions?: PostMigrationAction[];
 }
 
 export function createJob(input: CreateJobRow): Job {
   const db = getDb();
   const id = randomUUID();
   const now = Date.now();
+  const actions = input.postMigrationActions ?? [];
   db.prepare(`
-    INSERT INTO jobs (id, source_id, dest_ids, doc_ids, empty_first, status, created_at, parent_job_id)
-    VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
+    INSERT INTO jobs (id, source_id, dest_ids, doc_ids, empty_first, status, created_at, parent_job_id, post_migration_actions)
+    VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)
   `).run(
     id,
     input.sourceId,
@@ -83,6 +87,7 @@ export function createJob(input: CreateJobRow): Job {
     input.emptyFirst ? 1 : 0,
     now,
     input.parentJobId ?? null,
+    actions.length > 0 ? JSON.stringify(actions) : null,
   );
   return {
     id,
@@ -95,6 +100,7 @@ export function createJob(input: CreateJobRow): Job {
     startedAt: null,
     endedAt: null,
     parentJobId: input.parentJobId ?? null,
+    postMigrationActions: actions,
   };
 }
 

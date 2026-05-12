@@ -9,6 +9,7 @@ export interface ConnectionStat {
   database: string;
   hasSchemaModel: boolean;
   schemaModelId: string | null;
+  schemaModelUpdatedAt: string | null;
 }
 
 export interface InstanceDashboardStats {
@@ -64,7 +65,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
           .map(c => {
             const model = schemaModelByConnectionId.get(c.id);
             const hasSchemaModel = !!model && model.createdAt !== model.updatedAt;
-            return { id: c.id, name: c.name, dialect: c.dialect, database: c.database, hasSchemaModel, schemaModelId: model?.id ?? null };
+            return { id: c.id, name: c.name, dialect: c.dialect, database: c.database, hasSchemaModel, schemaModelId: model?.id ?? null, schemaModelUpdatedAt: model?.updatedAt ?? null };
           });
 
         return {

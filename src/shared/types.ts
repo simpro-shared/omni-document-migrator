@@ -1,5 +1,22 @@
 export type InstanceRole = 'source' | 'destination';
 
+export interface PostMigrationAction {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  body: string;
+}
+
+export interface PostMigrationActionResult {
+  index: number;
+  method: string;
+  url: string;
+  status: number | null;
+  ok: boolean;
+  error?: string;
+  responseBody?: string;
+}
+
 export interface Instance {
   id: string;
   label: string;
@@ -67,6 +84,7 @@ export interface Job {
   startedAt: number | null;
   endedAt: number | null;
   parentJobId: string | null;
+  postMigrationActions: PostMigrationAction[];
 }
 
 export interface JobWithItems extends Job {
@@ -95,6 +113,7 @@ export interface CreateJobInput {
   destIds: string[];
   docIds: string[];
   emptyFirst: boolean;
+  postMigrationActions?: PostMigrationAction[];
 }
 
 export interface JobEvent {

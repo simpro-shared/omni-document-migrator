@@ -552,6 +552,26 @@ function InstanceCard({
   );
 }
 
+function timeAgo(iso: string): { label: string; overdue: boolean } {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60_000);
+  const hours = Math.floor(mins / 60);
+  let label: string;
+  if (mins < 1) label = 'just now';
+  else if (mins < 60) label = `${mins}m ago`;
+  else label = `${hours}h ${mins % 60}m ago`;
+  return { label, overdue: mins > 30 };
+}
+
+function SchemaAge({ updatedAt }: { updatedAt: string }) {
+  const { label, overdue } = timeAgo(updatedAt);
+  return (
+    <span className={`ml-1.5 ${overdue ? 'text-red-400' : 'text-amber-500/70'}`} title={`Last updated: ${new Date(updatedAt).toLocaleString()}`}>
+      ({label}{overdue ? ' — overdue' : ''})
+    </span>
+  );
+}
+
 function ConnectionTable({
   connections,
   excludedIds,
@@ -596,7 +616,12 @@ function ConnectionTable({
                 {c.hasSchemaModel ? (
                   <span className="text-emerald-400">✓</span>
                 ) : (
-                  <span className="text-amber-400">missing</span>
+                  <span className="text-amber-400">
+                    missing
+                    {c.schemaModelUpdatedAt && (
+                      <SchemaAge updatedAt={c.schemaModelUpdatedAt} />
+                    )}
+                  </span>
                 )}
               </td>
               <td className="py-1.5 pr-2 text-center">

@@ -2,7 +2,7 @@ import { Fragment, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
-import type { JobPlan, OmniDoc } from '../../shared/types';
+import type { JobPlan, OmniDoc, PostMigrationAction, PostMigrationActionResult } from '../../shared/types';
 
 export default function Migrate() {
   const nav = useNavigate();
@@ -18,6 +18,7 @@ export default function Migrate() {
   const [emptyFirst, setEmptyFirst] = useState(false);
   const [plan, setPlan] = useState<JobPlan | null>(null);
   const [fixingId, setFixingId] = useState<string | null>(null);
+  const [postMigrationActions, setPostMigrationActions] = useState<PostMigrationAction[]>([]);
 
   const docs = useQuery({
     queryKey: ['folder', sourceId],
@@ -31,7 +32,7 @@ export default function Migrate() {
   });
 
   const execute = useMutation({
-    mutationFn: () => api.createJob({ sourceId, destIds, docIds, emptyFirst }),
+    mutationFn: () => api.createJob({ sourceId, destIds, docIds, emptyFirst, postMigrationActions }),
     onSuccess: ({ job }) => nav(`/jobs/${job.id}`),
   });
 
@@ -177,6 +178,8 @@ export default function Migrate() {
           )}
         </section>
       )}
+
+      <PostMigrationActionsEditor actions={postMigrationActions} onChange={setPostMigrationActions} />
 
       <div className="flex gap-3">
         <button
@@ -346,6 +349,215 @@ function FixPanel({
         {save.error && <span className="text-xs text-red-400 self-center">{(save.error as Error).message}</span>}
       </div>
     </div>
+  );
+}
+
+const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+const blankAction: PostMigrationAction = { method: 'POST', url: '', headers: {}, body: '' };
+
+function ActionResult({ result: r }: { result: PostMigrationActionResult }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={`text-xs rounded ${r.ok ? 'bg-emerald-950' : 'bg-red-950'}`}>
+      <button
+        className={`w-full flex items-center gap-2 px-2 py-1 text-left ${r.ok ? 'text-emerald-300' : 'text-red-300'}`}
+        onClick={() => (r.responseBody || r.error) && setOpen(v => !v)}
+      >
+        <span className="font-mono">{r.method}</span>
+        <span className="font-mono flex-1 truncate">{r.url}</span>
+        <span>{r.status ?? 'network error'}</span>
+        {(r.responseBody || r.error) && <span className="opacity-50">{open ? '▾' : '▸'}</span>}
+      </button>
+      {open && (
+        <pre className={`px-2 pb-2 text-xs overflow-x-auto whitespace-pre-wrap break-all ${r.ok ? 'text-emerald-400/80' : 'text-red-400/80'}`}>
+          {r.error ?? r.responseBody}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function PostMigrationActionsEditor({
+  actions,
+  onChange,
+}: {
+  actions: PostMigrationAction[];
+  onChange: (actions: PostMigrationAction[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [editingAction, setEditingAction] = useState<PostMigrationAction | null>(null);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [runResults, setRunResults] = useState<PostMigrationActionResult[] | null>(null);
+  const [running, setRunning] = useState(false);
+
+  const commitEdit = (): void => {
+    if (!editingAction) return;
+    const next = [...actions];
+    if (editingIndex === null) next.push(editingAction);
+    else next[editingIndex] = editingAction;
+    onChange(next);
+    setEditingAction(null);
+    setEditingIndex(null);
+  };
+
+  const removeAction = (idx: number): void => onChange(actions.filter((_, i) => i !== idx));
+
+  const setHeader = (key: string, value: string): void => {
+    if (!editingAction) return;
+    setEditingAction({ ...editingAction, headers: { ...editingAction.headers, [key]: value } });
+  };
+
+  const addHeader = (): void => {
+    if (!editingAction) return;
+    setEditingAction({ ...editingAction, headers: { ...editingAction.headers, '': '' } });
+  };
+
+  const removeHeader = (key: string): void => {
+    if (!editingAction) return;
+    const { [key]: _, ...rest } = editingAction.headers;
+    void _;
+    setEditingAction({ ...editingAction, headers: rest });
+  };
+
+  const runNow = async (): Promise<void> => {
+    setRunning(true);
+    setRunResults(null);
+    try {
+      const { results } = await api.runActions(actions);
+      setRunResults(results);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <section className="bg-zinc-900 border border-zinc-800 rounded">
+      <button
+        className="w-full flex items-center justify-between px-4 py-3 text-sm text-left"
+        onClick={() => setOpen(v => !v)}
+      >
+        <span className="font-medium text-zinc-200">
+          Post-migration actions
+          {actions.length > 0 && <span className="ml-2 text-xs text-violet-400">({actions.length})</span>}
+        </span>
+        <span className="text-zinc-500 text-xs">{open ? '▾' : '▸'}</span>
+      </button>
+
+      {open && (
+        <div className="border-t border-zinc-800 px-4 pb-4 pt-3 space-y-3">
+          <p className="text-xs text-zinc-500">These API calls run in order after all destinations finish migrating.</p>
+
+          {actions.length === 0 && editingAction === null && (
+            <div className="text-xs text-zinc-600">No actions configured.</div>
+          )}
+
+          {actions.map((a, idx) => (
+            <div key={idx} className="flex items-center gap-2 bg-zinc-950 rounded px-2 py-1.5 text-xs">
+              <span className="font-mono text-zinc-400 w-14 shrink-0">{a.method}</span>
+              <span className="font-mono text-zinc-300 flex-1 truncate">{a.url}</span>
+              <button className="text-zinc-500 hover:text-zinc-300" onClick={() => { setEditingAction(a); setEditingIndex(idx); }}>edit</button>
+              <button className="text-red-500 hover:text-red-400" onClick={() => removeAction(idx)}>×</button>
+            </div>
+          ))}
+
+          {editingAction !== null && (
+            <div className="bg-zinc-950 border border-zinc-700 rounded p-3 space-y-2 text-xs">
+              <div className="flex gap-2">
+                <select
+                  value={editingAction.method}
+                  onChange={e => setEditingAction({ ...editingAction, method: e.target.value })}
+                  className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1"
+                >
+                  {HTTP_METHODS.map(m => <option key={m}>{m}</option>)}
+                </select>
+                <input
+                  className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 font-mono"
+                  placeholder="https://example.com/webhook"
+                  value={editingAction.url}
+                  onChange={e => setEditingAction({ ...editingAction, url: e.target.value })}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-zinc-500">Headers</div>
+                {Object.entries(editingAction.headers).map(([k, v]) => (
+                  <div key={k} className="flex gap-1">
+                    <input
+                      className="w-36 bg-zinc-900 border border-zinc-700 rounded px-2 py-0.5 font-mono"
+                      placeholder="Header-Name"
+                      defaultValue={k}
+                      onBlur={e => {
+                        const newKey = e.target.value;
+                        if (newKey !== k && editingAction) {
+                          const { [k]: val, ...rest } = editingAction.headers;
+                          setEditingAction({ ...editingAction, headers: { ...rest, [newKey]: val ?? v } });
+                        }
+                      }}
+                    />
+                    <input
+                      className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-0.5 font-mono"
+                      placeholder="value"
+                      value={v}
+                      onChange={e => setHeader(k, e.target.value)}
+                    />
+                    <button className="text-red-500 hover:text-red-400 px-1" onClick={() => removeHeader(k)}>×</button>
+                  </div>
+                ))}
+                <button className="text-zinc-500 hover:text-zinc-300" onClick={addHeader}>+ header</button>
+              </div>
+
+              <div>
+                <div className="text-zinc-500 mb-1">Body</div>
+                <textarea
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 font-mono h-20 resize-y"
+                  placeholder='{"key": "value"}'
+                  value={editingAction.body}
+                  onChange={e => setEditingAction({ ...editingAction, body: e.target.value })}
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  className="bg-zinc-100 text-zinc-900 rounded px-3 py-1 font-medium disabled:opacity-40"
+                  disabled={!editingAction.url}
+                  onClick={commitEdit}
+                >
+                  {editingIndex === null ? 'Add' : 'Save'}
+                </button>
+                <button className="text-zinc-500 hover:text-zinc-300" onClick={() => { setEditingAction(null); setEditingIndex(null); }}>cancel</button>
+              </div>
+            </div>
+          )}
+
+          {editingAction === null && (
+            <button
+              className="text-xs text-violet-400 hover:text-violet-300"
+              onClick={() => { setEditingAction({ ...blankAction }); setEditingIndex(null); }}
+            >
+              + add action
+            </button>
+          )}
+
+          {actions.length > 0 && editingAction === null && (
+            <div className="pt-1">
+              <button
+                className="text-xs bg-violet-900 text-violet-200 hover:bg-violet-800 rounded px-3 py-1 disabled:opacity-40"
+                disabled={running}
+                onClick={() => void runNow()}
+              >
+                {running ? 'running…' : 'test run'}
+              </button>
+            </div>
+          )}
+
+          {runResults && (
+            <div className="space-y-1">
+              {runResults.map(r => <ActionResult key={r.index} result={r} />)}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
