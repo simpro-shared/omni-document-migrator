@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { deriveKey, encrypt, decrypt, randomSalt, SIZES } from './crypto.js';
-import type { Instance, InstancePublic } from '../../shared/types.js';
+import type { Instance, InstancePublic, PostMigrationAction } from '../../shared/types.js';
 
 interface VaultData {
   version: 1;
@@ -102,6 +102,14 @@ export function upsertInstance(input: Omit<Instance, 'id'> & { id?: string }): I
 export function deleteInstance(id: string): void {
   const c = requireCache();
   c.instances = c.instances.filter(i => i.id !== id);
+  persist();
+}
+
+export function setInstanceActions(id: string, actions: PostMigrationAction[]): void {
+  const c = requireCache();
+  const idx = c.instances.findIndex(i => i.id === id);
+  if (idx === -1) throw new Error('instance not found');
+  c.instances[idx] = { ...c.instances[idx]!, postMigrationActions: actions };
   persist();
 }
 

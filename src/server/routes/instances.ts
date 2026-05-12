@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { deleteInstance, getInstance, isUnlocked, listInstances, upsertInstance } from '../storage/vault.js';
+import { deleteInstance, getInstance, isUnlocked, listInstances, upsertInstance, setInstanceActions } from '../storage/vault.js';
 
 const instanceBody = z.object({
   id: z.string().uuid().optional(),
@@ -35,6 +35,21 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const body = instanceBody.parse({ ...(req.body as object), id });
     return upsertInstance(body);
+  });
+
+  const actionSchema = z.object({
+    method: z.string().min(1),
+    url: z.string().url(),
+    headers: z.record(z.string()).default({}),
+    body: z.string().default(''),
+  });
+
+  app.put('/api/instances/:id/actions', async req => {
+    requireUnlocked();
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const actions = z.array(actionSchema).parse(req.body);
+    setInstanceActions(id, actions);
+    return { ok: true };
   });
 
   app.delete('/api/instances/:id', async req => {

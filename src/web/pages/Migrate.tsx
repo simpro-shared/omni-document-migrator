@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
@@ -19,6 +19,7 @@ export default function Migrate() {
   const [plan, setPlan] = useState<JobPlan | null>(null);
   const [fixingId, setFixingId] = useState<string | null>(null);
   const [postMigrationActions, setPostMigrationActions] = useState<PostMigrationAction[]>([]);
+  const [enabledActionIndices, setEnabledActionIndices] = useState<Set<number>>(new Set());
 
   const docs = useQuery({
     queryKey: ['folder', sourceId],
@@ -26,13 +27,24 @@ export default function Migrate() {
     enabled: !!sourceId,
   });
 
+  const sourceInstance = useMemo(() => instances?.find(i => i.id === sourceId), [instances, sourceId]);
+
+  useEffect(() => {
+    const actions = sourceInstance?.postMigrationActions ?? [];
+    setPostMigrationActions(actions);
+    setEnabledActionIndices(new Set(actions.map((_, i) => i)));
+  }, [sourceId, sourceInstance?.postMigrationActions]);
+
   const preview = useMutation({
     mutationFn: () => api.previewJob({ sourceId, destIds, docIds, emptyFirst }),
     onSuccess: p => setPlan(p),
   });
 
   const execute = useMutation({
-    mutationFn: () => api.createJob({ sourceId, destIds, docIds, emptyFirst, postMigrationActions }),
+    mutationFn: () => api.createJob({
+      sourceId, destIds, docIds, emptyFirst,
+      postMigrationActions: postMigrationActions.filter((_, i) => enabledActionIndices.has(i)),
+    }),
     onSuccess: ({ job }) => nav(`/jobs/${job.id}`),
   });
 
@@ -179,7 +191,22 @@ export default function Migrate() {
         </section>
       )}
 
-      <PostMigrationActionsEditor actions={postMigrationActions} onChange={setPostMigrationActions} />
+      {sourceId && (
+        <PostMigrationActionsEditor
+          sourceId={sourceId}
+          actions={postMigrationActions}
+          enabledIndices={enabledActionIndices}
+          onChangeActions={actions => {
+            setPostMigrationActions(actions);
+            setEnabledActionIndices(new Set(actions.map((_, i) => i)));
+          }}
+          onToggleEnabled={idx => setEnabledActionIndices(prev => {
+            const next = new Set(prev);
+            next.has(idx) ? next.delete(idx) : next.add(idx);
+            return next;
+          })}
+        />
+      )}
 
       <div className="flex gap-3">
         <button
@@ -378,29 +405,46 @@ function ActionResult({ result: r }: { result: PostMigrationActionResult }) {
 }
 
 function PostMigrationActionsEditor({
+  sourceId,
   actions,
-  onChange,
+  enabledIndices,
+  onChangeActions,
+  onToggleEnabled,
 }: {
+  sourceId: string;
   actions: PostMigrationAction[];
-  onChange: (actions: PostMigrationAction[]) => void;
+  enabledIndices: Set<number>;
+  onChangeActions: (actions: PostMigrationAction[]) => void;
+  onToggleEnabled: (idx: number) => void;
 }) {
+  const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editingAction, setEditingAction] = useState<PostMigrationAction | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [runResults, setRunResults] = useState<PostMigrationActionResult[] | null>(null);
   const [running, setRunning] = useState(false);
 
+  const saveToSource = async (next: PostMigrationAction[]): Promise<void> => {
+    await api.saveInstanceActions(sourceId, next);
+    qc.invalidateQueries({ queryKey: ['instances'] });
+  };
+
   const commitEdit = (): void => {
     if (!editingAction) return;
     const next = [...actions];
     if (editingIndex === null) next.push(editingAction);
     else next[editingIndex] = editingAction;
-    onChange(next);
+    onChangeActions(next);
+    void saveToSource(next);
     setEditingAction(null);
     setEditingIndex(null);
   };
 
-  const removeAction = (idx: number): void => onChange(actions.filter((_, i) => i !== idx));
+  const removeAction = (idx: number): void => {
+    const next = actions.filter((_, i) => i !== idx);
+    onChangeActions(next);
+    void saveToSource(next);
+  };
 
   const setHeader = (key: string, value: string): void => {
     if (!editingAction) return;
@@ -423,12 +467,15 @@ function PostMigrationActionsEditor({
     setRunning(true);
     setRunResults(null);
     try {
-      const { results } = await api.runActions(actions);
+      const enabled = actions.filter((_, i) => enabledIndices.has(i));
+      const { results } = await api.runActions(enabled);
       setRunResults(results);
     } finally {
       setRunning(false);
     }
   };
+
+  const enabledCount = actions.filter((_, i) => enabledIndices.has(i)).length;
 
   return (
     <section className="bg-zinc-900 border border-zinc-800 rounded">
@@ -438,21 +485,33 @@ function PostMigrationActionsEditor({
       >
         <span className="font-medium text-zinc-200">
           Post-migration actions
-          {actions.length > 0 && <span className="ml-2 text-xs text-violet-400">({actions.length})</span>}
+          {actions.length > 0 && (
+            <span className="ml-2 text-xs text-violet-400">
+              {enabledCount}/{actions.length} enabled
+            </span>
+          )}
         </span>
         <span className="text-zinc-500 text-xs">{open ? '▾' : '▸'}</span>
       </button>
 
       {open && (
         <div className="border-t border-zinc-800 px-4 pb-4 pt-3 space-y-3">
-          <p className="text-xs text-zinc-500">These API calls run in order after all destinations finish migrating.</p>
+          <p className="text-xs text-zinc-500">
+            Saved to this source. Enabled actions run in order after all destinations finish. Toggle per run.
+          </p>
 
           {actions.length === 0 && editingAction === null && (
             <div className="text-xs text-zinc-600">No actions configured.</div>
           )}
 
           {actions.map((a, idx) => (
-            <div key={idx} className="flex items-center gap-2 bg-zinc-950 rounded px-2 py-1.5 text-xs">
+            <div key={idx} className={`flex items-center gap-2 bg-zinc-950 rounded px-2 py-1.5 text-xs ${!enabledIndices.has(idx) ? 'opacity-40' : ''}`}>
+              <input
+                type="checkbox"
+                checked={enabledIndices.has(idx)}
+                onChange={() => onToggleEnabled(idx)}
+                className="shrink-0"
+              />
               <span className="font-mono text-zinc-400 w-14 shrink-0">{a.method}</span>
               <span className="font-mono text-zinc-300 flex-1 truncate">{a.url}</span>
               <button className="text-zinc-500 hover:text-zinc-300" onClick={() => { setEditingAction(a); setEditingIndex(idx); }}>edit</button>
@@ -538,14 +597,14 @@ function PostMigrationActionsEditor({
             </button>
           )}
 
-          {actions.length > 0 && editingAction === null && (
+          {enabledCount > 0 && editingAction === null && (
             <div className="pt-1">
               <button
                 className="text-xs bg-violet-900 text-violet-200 hover:bg-violet-800 rounded px-3 py-1 disabled:opacity-40"
                 disabled={running}
                 onClick={() => void runNow()}
               >
-                {running ? 'running…' : 'test run'}
+                {running ? 'running…' : `test run (${enabledCount})`}
               </button>
             </div>
           )}

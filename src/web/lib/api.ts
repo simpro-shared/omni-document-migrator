@@ -81,6 +81,12 @@ export const api = {
     }).then(j<InstancePublic>),
   deleteInstance: (id: string) =>
     fetch(`/api/instances/${id}`, { method: 'DELETE' }).then(j<{ ok: true }>),
+  saveInstanceActions: (id: string, actions: PostMigrationAction[]) =>
+    fetch(`/api/instances/${id}/actions`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(actions),
+    }).then(j<{ ok: true }>),
 
   listFolder: (instanceId: string) =>
     fetch(`/api/instances/${instanceId}/folder`).then(j<OmniDoc[]>),

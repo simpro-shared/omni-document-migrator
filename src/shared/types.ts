@@ -27,6 +27,7 @@ export interface Instance {
   modelId: string;
   folderId: string;
   folderPath: string;
+  postMigrationActions?: PostMigrationAction[];
 }
 
 export type InstancePublic = Omit<Instance, 'apiKey'> & { apiKeyMasked: string };
