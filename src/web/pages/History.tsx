@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 
 export default function History() {
-  const { data } = useQuery({ queryKey: ['jobs'], queryFn: api.listJobs, refetchInterval: 5000 });
+  const { data } = useQuery({ queryKey: ['jobs'], queryFn: api.listJobs });
   return (
     <div className="space-y-3">
       <h2 className="text-lg font-semibold">Job history</h2>

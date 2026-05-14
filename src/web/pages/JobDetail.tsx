@@ -12,7 +12,6 @@ export default function JobDetail() {
   const { data } = useQuery({
     queryKey: ['job', id],
     queryFn: () => api.getJob(id),
-    refetchInterval: 15_000,
   });
   const [liveItems, setLiveItems] = useState<Record<string, Partial<JobItem>>>({});
 
