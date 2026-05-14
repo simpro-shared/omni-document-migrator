@@ -442,14 +442,15 @@ function InstanceCard({
   const missing = activeConnections.filter(c => !c.hasSchemaModel);
   const excludedCount = inst.connections.length - activeConnections.length;
 
-  const filtered = search.trim()
+  const filtered = (search.trim()
     ? inst.connections.filter(
         c =>
           c.name.toLowerCase().includes(search.toLowerCase()) ||
           c.database.toLowerCase().includes(search.toLowerCase()) ||
           c.dialect.toLowerCase().includes(search.toLowerCase())
       )
-    : inst.connections;
+    : inst.connections
+  ).toSorted((a, b) => (a.hasSchemaModel ? 1 : 0) - (b.hasSchemaModel ? 1 : 0));
 
   const refreshOne = async (c: ConnectionStat) => {
     if (!c.schemaModelId) return;
