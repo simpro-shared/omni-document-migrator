@@ -463,7 +463,6 @@ function StatCard({ label, value, highlight }: { label: string; value: number; h
 }
 
 type RefreshStatus = 'idle' | 'pending' | 'ok' | 'error';
-
 function InstanceCard({
   inst,
   isExpanded,
@@ -496,7 +495,7 @@ function InstanceCard({
           c.dialect.toLowerCase().includes(search.toLowerCase())
       )
     : inst.connections
-  ).toSorted((a, b) => (a.hasSchemaModel ? 1 : 0) - (b.hasSchemaModel ? 1 : 0));
+  ).slice().sort((a, b) => (a.hasSchemaModel ? 1 : 0) - (b.hasSchemaModel ? 1 : 0));
 
   const refreshOne = async (c: ConnectionStat) => {
     if (!c.schemaModelId) return;
@@ -510,6 +509,7 @@ function InstanceCard({
       setRefreshError(prev => ({ ...prev, [c.id]: err instanceof Error ? err.message : 'failed' }));
     }
   };
+
 
   const refreshAll = () => {
     const targets = activeConnections.filter(c => c.schemaModelId);
@@ -642,7 +642,7 @@ function ConnectionTable({
           <th className="pb-1 pr-4 font-normal">Database</th>
           <th className="pb-1 pr-4 font-normal">Dialect</th>
           <th className="pb-1 pr-4 font-normal">Schema Model</th>
-          <th className="pb-1 pr-2 font-normal text-center">Refresh</th>
+          <th className="pb-1 pr-2 font-normal text-center">Refresh Schema</th>
           <th className="pb-1 font-normal text-right">Count</th>
         </tr>
       </thead>
@@ -665,9 +665,7 @@ function ConnectionTable({
                 ) : (
                   <span className="text-amber-400">
                     missing
-                    {c.schemaModelUpdatedAt && (
-                      <SchemaAge updatedAt={c.schemaModelUpdatedAt} />
-                    )}
+                    {c.schemaModelUpdatedAt && <SchemaAge updatedAt={c.schemaModelUpdatedAt} />}
                   </span>
                 )}
               </td>
