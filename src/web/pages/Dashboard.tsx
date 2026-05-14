@@ -8,7 +8,34 @@ import type { ConnectionStat, EmbedUserStat, InstanceDashboardStats, InstanceEmb
 
 const lsKey = {
   excluded: (id: string) => `dashboard:excluded:${id}`,
+  connectionsCache: 'dashboard:cache:connections',
+  usersCache: 'dashboard:cache:users',
 };
+
+function lsGetCache<T>(key: string): { data: T; fetchedAt: number } | null {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as { data: T; fetchedAt: number }) : null;
+  } catch {
+    return null;
+  }
+}
+
+function lsSetCache<T>(key: string, data: T, fetchedAt: number): void {
+  localStorage.setItem(key, JSON.stringify({ data, fetchedAt }));
+}
+
+function useElapsed(timestampMs: number): string {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick(n => n + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  if (!timestampMs) return 'never fetched';
+  const secs = Math.floor((Date.now() - timestampMs) / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  return `${Math.floor(secs / 60)}m ago`;
+}
 
 function lsGetExcluded(instanceId: string): Set<string> {
   try {
@@ -64,11 +91,15 @@ function TabButton({ label, active, onClick }: { label: string; active: boolean;
 // --- Connections Tab ---
 
 function ConnectionsTab({ nav }: { nav: ReturnType<typeof useNavigate> }) {
-  const { data: allData, isLoading, error, refetch, isFetching } = useQuery({
+  const cached = lsGetCache<InstanceDashboardStats[]>(lsKey.connectionsCache);
+  const { data: allData, isLoading, error, refetch, isFetching, dataUpdatedAt } = useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: api.getDashboardStats,
-    staleTime: 60_000,
+    staleTime: Infinity,
+    initialData: cached?.data,
+    initialDataUpdatedAt: cached?.fetchedAt,
   });
+  const elapsed = useElapsed(dataUpdatedAt);
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState<Record<string, string>>({});
@@ -76,6 +107,7 @@ function ConnectionsTab({ nav }: { nav: ReturnType<typeof useNavigate> }) {
 
   useEffect(() => {
     if (!allData) return;
+    lsSetCache(lsKey.connectionsCache, allData, dataUpdatedAt);
     setExcluded(prev => {
       const next: Record<string, Set<string>> = { ...prev };
       for (const inst of allData) {
@@ -85,7 +117,7 @@ function ConnectionsTab({ nav }: { nav: ReturnType<typeof useNavigate> }) {
       }
       return next;
     });
-  }, [allData]);
+  }, [allData, dataUpdatedAt]);
 
   const data = allData?.filter(i => isDashboardEnabled(i.instanceId));
 
@@ -146,13 +178,16 @@ function ConnectionsTab({ nav }: { nav: ReturnType<typeof useNavigate> }) {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h2 className="text-zinc-200 font-semibold text-lg">Connections</h2>
-        <button
-          className="text-xs text-zinc-400 hover:text-zinc-200 disabled:opacity-40"
-          onClick={() => refetch()}
-          disabled={isFetching}
-        >
-          {isFetching ? 'refreshing…' : 'refresh'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            className="text-xs text-zinc-400 hover:text-zinc-200 disabled:opacity-40"
+            onClick={() => refetch()}
+            disabled={isFetching}
+          >
+            {isFetching ? 'refreshing…' : 'refresh'}
+          </button>
+          <span className="text-xs text-zinc-600">{elapsed}</span>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
@@ -184,14 +219,22 @@ function ConnectionsTab({ nav }: { nav: ReturnType<typeof useNavigate> }) {
 const ALL_EMBED_USERS_GROUP = 'All Embed Users';
 
 function UsersTab({ nav }: { nav: ReturnType<typeof useNavigate> }) {
-  const { data: allData, isLoading, error, refetch, isFetching } = useQuery({
+  const cached = lsGetCache<InstanceEmbedUserStats[]>(lsKey.usersCache);
+  const { data: allData, isLoading, error, refetch, isFetching, dataUpdatedAt } = useQuery({
     queryKey: ['dashboard-embed-users'],
     queryFn: api.getEmbedUserStats,
-    staleTime: 60_000,
+    staleTime: Infinity,
+    initialData: cached?.data,
+    initialDataUpdatedAt: cached?.fetchedAt,
   });
+  const elapsed = useElapsed(dataUpdatedAt);
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (allData) lsSetCache(lsKey.usersCache, allData, dataUpdatedAt);
+  }, [allData, dataUpdatedAt]);
 
   const data = allData?.filter(i => isDashboardEnabled(i.instanceId));
 
@@ -236,13 +279,16 @@ function UsersTab({ nav }: { nav: ReturnType<typeof useNavigate> }) {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h2 className="text-zinc-200 font-semibold text-lg">Embed Users</h2>
-        <button
-          className="text-xs text-zinc-400 hover:text-zinc-200 disabled:opacity-40"
-          onClick={() => refetch()}
-          disabled={isFetching}
-        >
-          {isFetching ? 'refreshing…' : 'refresh'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            className="text-xs text-zinc-400 hover:text-zinc-200 disabled:opacity-40"
+            onClick={() => refetch()}
+            disabled={isFetching}
+          >
+            {isFetching ? 'refreshing…' : 'refresh'}
+          </button>
+          <span className="text-xs text-zinc-600">{elapsed}</span>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
