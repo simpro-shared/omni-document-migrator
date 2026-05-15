@@ -512,12 +512,12 @@ function InstanceCard({
 
 
   const refreshAll = () => {
-    const targets = activeConnections.filter(c => c.schemaModelId);
+    const targets = activeConnections.filter(c => c.schemaModelId && !c.hasSchemaModel);
     for (const c of targets) refreshOne(c);
   };
 
   const bulkPending = activeConnections.some(c => refreshStatus[c.id] === 'pending');
-  const refreshableCount = activeConnections.filter(c => c.schemaModelId).length;
+  const refreshableCount = activeConnections.filter(c => c.schemaModelId && !c.hasSchemaModel).length;
 
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900">
